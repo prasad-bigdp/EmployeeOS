@@ -11,13 +11,45 @@ export default defineConfig({
   banner: {
     js: "#!/usr/bin/env node",
   },
-  // Bundle all internal workspace packages into the single output file.
+  // Bundle only the internal @employeeos/* workspace packages.
+  // Everything else (real npm packages) must stay external so pnpm's
+  // symlink structure doesn't cause CJS require() chains to get inlined
+  // into the ESM bundle (which breaks dynamic require of punycode, etc.).
   noExternal: [/^@employeeos\/.*/],
-  // playwright-core has optional native bindings that esbuild can't resolve.
-  // Keep it external — users install it separately via `npx playwright install`.
   external: [
+    // AI providers
+    "@anthropic-ai/sdk",
+    "openai",
+    // Database
+    "sql.js",
+    "drizzle-orm",
+    // Web server
+    "fastify",
+    "@fastify/cors",
+    "@fastify/static",
+    "@fastify/websocket",
+    "ws",
+    // Telegram — grammy pulls in node-fetch (CJS) → whatwg-url → punycode
+    // which breaks when inlined into an ESM bundle
+    "grammy",
+    "node-fetch",
+    "whatwg-url",
+    "punycode",
+    // Email
+    "nodemailer",
+    // Browser automation
     "playwright-core",
     "chromium-bidi",
-    "ws",
+    // MCP
+    "@modelcontextprotocol/sdk",
+    // Utilities
+    "zod",
+    "chalk",
+    "commander",
+    "inquirer",
+    "ora",
+    "papaparse",
+    "pdf-parse",
+    "pino",
   ],
 });
