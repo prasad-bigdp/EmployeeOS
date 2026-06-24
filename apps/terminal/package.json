@@ -25,13 +25,13 @@
     "morning-brief",
     "health-score"
   ],
-  "homepage": "https://github.com/your-org/employeeos#readme",
+  "homepage": "https://github.com/prasad-bigdp/EmployeeOS#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-org/employeeos.git"
+    "url": "https://github.com/prasad-bigdp/EmployeeOS.git"
   },
   "bugs": {
-    "url": "https://github.com/your-org/employeeos/issues"
+    "url": "https://github.com/prasad-bigdp/EmployeeOS/issues"
   },
   "license": "MIT",
   "engines": {

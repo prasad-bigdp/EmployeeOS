@@ -81,7 +81,7 @@ Gives you the full source to modify.
 # You need pnpm
 npm install -g pnpm
 
-git clone https://github.com/your-org/employeeos
+git clone https://github.com/prasad-bigdp/EmployeeOS
 cd employeeos
 pnpm install
 pnpm build
@@ -384,8 +384,8 @@ All internal `@employeeos/*` packages get bundled into a single `dist/index.js` 
 
 ```bash
 docker build -t employeeos:latest .
-docker tag employeeos:latest ghcr.io/your-org/employeeos:latest
-docker push ghcr.io/your-org/employeeos:latest
+docker tag employeeos:latest ghcr.io/prasad-bigdp/EmployeeOS:latest
+docker push ghcr.io/prasad-bigdp/EmployeeOS:latest
 ```
 
 ---
