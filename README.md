@@ -47,14 +47,14 @@ docker run -it \
   -p 3001:3001 \
   -v ~/.employeeos:/root/.employeeos \
   -e ANTHROPIC_API_KEY=your_key_here \
-  ghcr.io/your-org/employeeos:latest \
+  ghcr.io/prasad-bigdp/employeeos:latest \
   init
 ```
 
 Or use docker-compose (recommended):
 
 ```bash
-git clone https://github.com/your-org/employeeos
+git clone https://github.com/prasad-bigdp/EmployeeOS
 cd employeeos
 
 # Set your AI key

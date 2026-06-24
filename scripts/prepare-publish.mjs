@@ -103,7 +103,9 @@ async function main() {
     } else {
       run("npm publish --access public", TERMINAL_DIR);
     }
-    console.log("\n✓ Published! Install with: npm install -g employeeos");
+    console.log("\n✓ Published!");
+  console.log("  npm:    npm install -g employeeos");
+  console.log("  GitHub: https://github.com/prasad-bigdp/EmployeeOS");
   } finally {
     // 5. Restore original package.json
     console.log("\n=== Step 5: Restore package.json ===");

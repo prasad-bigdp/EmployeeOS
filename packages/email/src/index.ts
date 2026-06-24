@@ -21,7 +21,7 @@ function buildHtml(subject: string, body: string): string {
 <h2 style="font-family:sans-serif;color:#ffffff;margin:0 0 16px">${subject}</h2>
 <div style="border-top:1px solid #3c3c3c;padding-top:16px">${lines}</div>
 <div style="margin-top:24px;padding-top:16px;border-top:1px solid #3c3c3c;font-family:sans-serif;font-size:11px;color:#555">
-Sent by your EmployeeOS Company Brain · <a href="https://github.com/your-org/employeeos" style="color:#569cd6">GitHub</a>
+Sent by your EmployeeOS Company Brain · <a href="https://github.com/prasad-bigdp/EmployeeOS" style="color:#569cd6">GitHub</a>
 </div></div></body></html>`;
 }
 
