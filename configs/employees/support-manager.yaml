@@ -1,0 +1,15 @@
+name: Support Manager
+
+goal:
+  - reduce_response_time
+  - improve_satisfaction
+
+daily_routine:
+  - review_tickets
+  - escalate_risks
+  - learn_patterns
+
+tools:
+  - support
+  - gmail
+  - knowledge_base

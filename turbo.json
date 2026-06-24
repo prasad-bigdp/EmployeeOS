@@ -1,0 +1,23 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", "build/**"]
+    },
+    "@employeeos/gateway#build": {
+      "dependsOn": ["@employeeos/web#build", "^build"],
+      "outputs": ["dist/**"]
+    },
+    "@employeeos/terminal#build": {
+      "dependsOn": ["@employeeos/gateway#build", "^build"],
+      "outputs": ["dist/**"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "lint": {},
+    "typecheck": {}
+  }
+}

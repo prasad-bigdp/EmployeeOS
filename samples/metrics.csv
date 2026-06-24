@@ -1,0 +1,41 @@
+date,category,metric,value,unit,brand,notes
+2024-01-01,revenue,monthly_revenue,125000,USD,,Total revenue for the month
+2024-01-01,revenue,recurring_revenue,98000,USD,,MRR from subscriptions
+2024-01-01,revenue,new_revenue,27000,USD,,New customer revenue
+2024-01-01,revenue,churn_revenue,4200,USD,,Lost to churn
+2024-01-01,marketing,website_visitors,8500,count,,Unique visitors
+2024-01-01,marketing,leads_generated,320,count,,All channels combined
+2024-01-01,marketing,email_opens,2340,count,,Newsletter open rate base
+2024-01-01,marketing,email_open_rate,42,percent,,
+2024-01-01,marketing,social_followers,12500,count,,Instagram+Facebook+LinkedIn
+2024-01-01,marketing,ad_spend,8500,USD,,Meta Ads + Google Ads
+2024-01-01,marketing,cost_per_lead,26.56,USD,,
+2024-01-01,marketing,organic_traffic,5100,count,,From search
+2024-01-01,marketing,paid_traffic,3400,count,,From ads
+2024-01-01,sales,deals_closed,28,count,,Won deals
+2024-01-01,sales,deals_lost,12,count,,Lost deals
+2024-01-01,sales,win_rate,70,percent,,
+2024-01-01,sales,pipeline_value,450000,USD,,Total open pipeline
+2024-01-01,sales,average_deal_size,16071,USD,,
+2024-01-01,sales,sales_cycle_days,28,days,,Average days to close
+2024-01-01,sales,demos_booked,45,count,,
+2024-01-01,support,tickets_open,145,count,,Open at end of month
+2024-01-01,support,tickets_resolved,132,count,,Resolved in month
+2024-01-01,support,csat_score,4.2,score,,Out of 5
+2024-01-01,support,first_response_hours,2.3,hours,,Average first response time
+2024-01-01,support,resolution_hours,18.5,hours,,Average time to resolve
+2024-01-01,support,churn_due_to_support,2,count,,Customers lost citing support
+2024-01-01,hr,headcount,42,count,,Full-time employees
+2024-01-01,hr,open_positions,5,count,,Active job postings
+2024-01-01,hr,turnover_rate,8.5,percent,,Annual rate
+2024-01-01,hr,eNPS,42,score,,Employee Net Promoter Score
+2024-01-01,finance,burn_rate,85000,USD,,Monthly cash burn
+2024-01-01,finance,runway_months,18,months,,At current burn rate
+2024-01-01,finance,gross_margin,68,percent,,
+2024-01-01,finance,cac,285,USD,,Customer Acquisition Cost
+2024-01-01,finance,ltv,2400,USD,,Lifetime Value
+2024-01-01,finance,ltv_cac_ratio,8.4,ratio,,LTV:CAC
+2024-01-01,operations,nps_score,52,score,,Net Promoter Score
+2024-01-01,operations,uptime_percent,99.8,percent,,System uptime
+2024-01-01,operations,api_latency_ms,145,ms,,Average API response time
+2024-01-01,operations,active_users,3240,count,,DAU

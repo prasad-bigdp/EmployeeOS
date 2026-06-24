@@ -1,0 +1,17 @@
+name: CEO Assistant
+
+goal:
+  - track_company_goals
+  - prepare_briefs
+  - highlight_risks
+
+daily_routine:
+  - monitor_signals
+  - compile_brief
+  - escalate_issues
+
+tools:
+  - gmail
+  - calendar
+  - crm
+  - analytics

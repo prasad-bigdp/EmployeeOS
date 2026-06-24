@@ -1,0 +1,19 @@
+services:
+  employeeos:
+    build: .
+    image: employeeos:latest
+    container_name: employeeos
+    ports:
+      - "3001:3001"
+    volumes:
+      # Persists all config, database, docs and skills on your host
+      - ~/.employeeos:/root/.employeeos
+    environment:
+      # Optional: set your AI key here instead of during `init`
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+    stdin_open: true   # -i (needed for interactive commands like init)
+    tty: true          # -t (needed for inquirer prompts)
+    restart: unless-stopped
+    command: start

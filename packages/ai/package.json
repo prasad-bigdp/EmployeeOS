@@ -1,0 +1,19 @@
+{
+  "name": "@employeeos/ai",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsup src/index.ts src/anthropic.ts src/openai.ts src/openrouter.ts src/ollama.ts --format esm --dts --out-dir dist",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "openai": "^6.44.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.5",
+    "typescript": "^5.8.3"
+  }
+}

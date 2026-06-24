@@ -1,0 +1,76 @@
+{
+  "name": "employeeos",
+  "version": "1.0.0",
+  "description": "The Open Source Company Brain — hire AI employees, get morning briefs, track business health",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "employeeos": "./dist/index.js"
+  },
+  "files": [
+    "dist/**",
+    "README.md"
+  ],
+  "keywords": [
+    "ai",
+    "agent",
+    "company-brain",
+    "business-intelligence",
+    "cli",
+    "llm",
+    "anthropic",
+    "openai",
+    "ollama",
+    "telegram-bot",
+    "morning-brief",
+    "health-score"
+  ],
+  "homepage": "https://github.com/your-org/employeeos#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/employeeos.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-org/employeeos/issues"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsup",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "pnpm build"
+  },
+  "dependencies": {
+    "@employeeos/ai": "workspace:*",
+    "@employeeos/brain": "workspace:*",
+    "@employeeos/browser": "workspace:^",
+    "@employeeos/database": "workspace:*",
+    "@employeeos/email": "workspace:*",
+    "@employeeos/employees": "workspace:*",
+    "@employeeos/gateway": "workspace:*",
+    "@employeeos/mcp": "workspace:^",
+    "@employeeos/telegram": "workspace:*",
+    "@employeeos/reporter": "workspace:*",
+    "@employeeos/shared": "workspace:*",
+    "@employeeos/skills": "workspace:*",
+    "chalk": "^5.4.1",
+    "commander": "^12.1.0",
+    "inquirer": "^12.0.1",
+    "ora": "^8.1.0",
+    "papaparse": "^5.5.4",
+    "pdf-parse": "^1.1.1",
+    "pino": "^9.3.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.0",
+    "@types/papaparse": "^5.5.2",
+    "@types/pdf-parse": "^1.1.4",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.8.3"
+  }
+}
