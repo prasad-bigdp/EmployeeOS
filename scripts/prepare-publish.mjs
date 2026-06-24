@@ -4,10 +4,10 @@
  * Run from repo root: node scripts/prepare-publish.mjs
  *
  * What it does:
- *   1. Builds the full monorepo (pnpm turbo build)
+ *   1. Builds the full monorepo (pnpm turbo build --force)
  *   2. Copies the web UI dist into apps/terminal/dist/web/
- *   3. Writes a publish-ready package.json (no workspace:* deps)
- *   4. Runs npm publish from apps/terminal/
+ *   3. Writes a publish-ready package.json (real npm deps, no workspace:*, no prepublishOnly)
+ *   4. Runs npm publish --ignore-scripts (skips any hooks that would rebuild)
  *   5. Restores the original package.json
  */
 
@@ -37,8 +37,8 @@ function copyDir(src, dest) {
 }
 
 // All real npm deps that @employeeos/* workspace packages pull in.
-// These become the published package's dependencies since the workspace
-// packages are bundled inline by tsup.
+// These become the published package's dependencies since all @employeeos/*
+// packages are bundled inline by tsup (noExternal in tsup.config.ts).
 const PUBLISH_DEPS = {
   "@anthropic-ai/sdk": "^0.39.0",
   "openai": "^6.44.0",
@@ -68,9 +68,21 @@ const PKG_BACKUP = path.join(TERMINAL_DIR, "package.json.bak");
 async function main() {
   const dryRun = process.argv.includes("--dry-run");
 
-  // 1. Build monorepo
+  // 1. Build monorepo (produces 4.5 MB bundled dist/index.js with shebang)
   console.log("\n=== Step 1: Build ===");
   run("pnpm turbo build --force");
+
+  // Verify the bundled binary was produced
+  const distFile = path.join(TERMINAL_DIST, "index.js");
+  const distSize = fs.statSync(distFile).size;
+  console.log(`  dist/index.js: ${(distSize / 1024 / 1024).toFixed(1)} MB`);
+
+  // Verify shebang is present
+  const firstLine = fs.readFileSync(distFile, "utf-8").split("\n")[0];
+  if (!firstLine.startsWith("#!/usr/bin/env node")) {
+    throw new Error("dist/index.js is missing the shebang line! Check tsup.config.ts banner setting.");
+  }
+  console.log("  ✓ shebang present");
 
   // 2. Copy web UI into terminal dist
   console.log("\n=== Step 2: Copy web UI ===");
@@ -87,27 +99,32 @@ async function main() {
     ...original,
     dependencies: PUBLISH_DEPS,
     files: ["dist/**", "README.md"],
+    scripts: {
+      // Only keep start — no prepublishOnly so npm doesn't rebuild and overwrite
+      // the 4.5 MB bundled dist/index.js with an unbundled version
+      start: "node dist/index.js",
+    },
   };
-  // Remove devDependencies from published package
   delete publishPkg.devDependencies;
 
   fs.writeFileSync(PKG_PATH, JSON.stringify(publishPkg, null, 2) + "\n", "utf-8");
-  console.log("  Wrote publish-ready package.json");
+  console.log("  Wrote publish-ready package.json (prepublishOnly removed)");
 
   try {
-    // 4. Publish
+    // 4. Publish — --ignore-scripts as a safety net so nothing rebuilds
     console.log("\n=== Step 4: Publish ===");
     if (dryRun) {
-      console.log("  [dry run] Would run: npm publish --access public");
-      run("npm publish --dry-run --access public", TERMINAL_DIR);
+      console.log("  [dry run] Would run: npm publish --access public --ignore-scripts");
+      run("npm publish --dry-run --access public --ignore-scripts", TERMINAL_DIR);
     } else {
-      run("npm publish --access public", TERMINAL_DIR);
+      run("npm publish --access public --ignore-scripts", TERMINAL_DIR);
     }
+
     console.log("\n✓ Published!");
-  console.log("  npm:    npm install -g employeeos");
-  console.log("  GitHub: https://github.com/prasad-bigdp/EmployeeOS");
+    console.log("  npm:    npm install -g employeeos");
+    console.log("  GitHub: https://github.com/prasad-bigdp/EmployeeOS");
   } finally {
-    // 5. Restore original package.json
+    // 5. Restore original package.json no matter what
     console.log("\n=== Step 5: Restore package.json ===");
     fs.copyFileSync(PKG_BACKUP, PKG_PATH);
     fs.unlinkSync(PKG_BACKUP);
@@ -117,10 +134,10 @@ async function main() {
 
 main().catch(err => {
   console.error("\n✗ Publish failed:", err.message);
-  // Restore backup if it exists
   if (fs.existsSync(PKG_BACKUP)) {
     fs.copyFileSync(PKG_BACKUP, PKG_PATH);
     fs.unlinkSync(PKG_BACKUP);
+    console.error("  Restored original package.json");
   }
   process.exit(1);
 });
