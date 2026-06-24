@@ -25,7 +25,7 @@ export default function Dashboard() {
   if (loading) return <div className="loading">Loading dashboard...</div>;
   if (error) return <div className="error-box">{error}</div>;
 
-  const goalsDone = goals.filter((g) => g.status === "done").length;
+  const goalsDone = goals.filter((g) => g.status === "complete").length;
 
   return (
     <div>

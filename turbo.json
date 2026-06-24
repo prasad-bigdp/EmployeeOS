@@ -9,7 +9,7 @@
       "dependsOn": ["@employeeos/web#build", "^build"],
       "outputs": ["dist/**"]
     },
-    "@employeeos/terminal#build": {
+    "employeeos#build": {
       "dependsOn": ["@employeeos/gateway#build", "^build"],
       "outputs": ["dist/**"]
     },

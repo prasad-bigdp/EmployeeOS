@@ -158,6 +158,9 @@ export async function hourlyTick(
   log("Observer: synthesizing observations...");
   const synthesis = await synthesizeObservations(db, ai, companyId);
 
+  // Mark all observations consumed this tick so they aren't re-analyzed next hour
+  await db.markAllObservationsProcessed(companyId);
+
   log("Learner: promoting patterns...");
   await promotePatterns(db, ai, companyId);
 
@@ -208,8 +211,13 @@ export async function dailyTick(
   const notify = onNotify ?? (() => {});
 
   log("Reporter: generating morning brief...");
-  const brief = await generateMorningBrief(db, ai, companyId);
-  await db.createReport(companyId, brief.title ?? "Morning Brief", brief.body, "morning_brief", brief.score);
+  const existingBrief = await db.getTodayReport(companyId, "morning_brief");
+  if (!existingBrief) {
+    const brief = await generateMorningBrief(db, ai, companyId);
+    await db.createReport(companyId, brief.title ?? "Morning Brief", brief.body, "morning_brief", brief.score);
+  } else {
+    log("Reporter: brief already generated today, skipping.");
+  }
 
   log("Scoring: computing health score...");
   await computeHealthScore(db, ai, companyId);

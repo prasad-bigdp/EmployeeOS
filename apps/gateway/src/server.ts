@@ -191,6 +191,7 @@ export async function startGateway(port = 3001): Promise<{
       baseURL: config.aiBaseURL,
     });
     const result = await generateMorningBrief(db, ai, config.companyId);
+    await db.deleteTodayReport(config.companyId, "morning_brief");
     await db.createReport(config.companyId, result.title, result.body, "morning_brief", result.score);
     const saved = await db.getLatestReport(config.companyId, "morning_brief");
     return saved ? { title: saved.title, body: saved.body, createdAt: saved.createdAt } : null;

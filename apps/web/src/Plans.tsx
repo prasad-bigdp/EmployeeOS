@@ -19,7 +19,7 @@ export default function Plans() {
 
   const pending = plans.filter((p) => p.status === "pending");
   const approved = plans.filter((p) => p.status === "approved");
-  const executed = plans.filter((p) => p.status === "executed");
+  const executed = plans.filter((p) => p.status === "done");
 
   return (
     <div>

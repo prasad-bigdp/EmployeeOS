@@ -2,7 +2,7 @@ import fs from "node:fs";
 import initSqlJs from "sql.js";
 import type { Database, SqlJsStatic, BindParams } from "sql.js";
 import { drizzle, type SqliteRemoteDatabase } from "drizzle-orm/sqlite-proxy";
-import { eq, desc } from "drizzle-orm";
+import { and, eq, desc, isNull } from "drizzle-orm";
 import * as schema from "./schema.js";
 import { runMigrations } from "./migrations.js";
 
@@ -256,7 +256,25 @@ export class DatabaseService {
     return this.db
       .select()
       .from(schema.observations)
-      .where(eq(schema.observations.companyId, companyId));
+      .where(
+        and(
+          eq(schema.observations.companyId, companyId),
+          isNull(schema.observations.processedAt)
+        )
+      );
+  }
+
+  async markAllObservationsProcessed(companyId: string) {
+    await this.db
+      .update(schema.observations)
+      .set({ processedAt: new Date().toISOString() })
+      .where(
+        and(
+          eq(schema.observations.companyId, companyId),
+          isNull(schema.observations.processedAt)
+        )
+      );
+    this.save();
   }
 
   async getRecentObservations(companyId: string, limit = 20) {
@@ -464,14 +482,38 @@ export class DatabaseService {
     return id;
   }
 
-  async getLatestReport(companyId: string, _kind = "daily_brief") {
+  async getTodayReport(companyId: string, kind = "daily_brief") {
+    const today = new Date().toISOString().slice(0, 10);
     const rows = await this.db
       .select()
       .from(schema.reports)
       .where(eq(schema.reports.companyId, companyId))
-      .orderBy(desc(schema.reports.createdAt))
-      .limit(1);
-    return rows[0] ?? null;
+      .orderBy(desc(schema.reports.createdAt));
+    return rows.find(r => r.kind === kind && r.createdAt.startsWith(today)) ?? null;
+  }
+
+  async deleteTodayReport(companyId: string, kind = "daily_brief") {
+    const today = new Date().toISOString().slice(0, 10);
+    const rows = await this.db
+      .select()
+      .from(schema.reports)
+      .where(eq(schema.reports.companyId, companyId));
+    const todayIds = rows
+      .filter(r => r.kind === kind && r.createdAt.startsWith(today))
+      .map(r => r.id);
+    for (const id of todayIds) {
+      await this.db.delete(schema.reports).where(eq(schema.reports.id, id));
+    }
+    if (todayIds.length > 0) this.save();
+  }
+
+  async getLatestReport(companyId: string, kind = "morning_brief") {
+    const rows = await this.db
+      .select()
+      .from(schema.reports)
+      .where(eq(schema.reports.companyId, companyId))
+      .orderBy(desc(schema.reports.createdAt));
+    return rows.find(r => r.kind === kind) ?? null;
   }
 
   async getRecentReports(companyId: string, limit = 5) {
