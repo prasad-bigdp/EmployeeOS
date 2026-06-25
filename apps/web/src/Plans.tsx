@@ -58,15 +58,17 @@ export default function Plans() {
 
 function PlanCard({ plan }: { plan: PlanRow }) {
   const autonomyColor: Record<string, string> = {
-    supervised: "badge-yellow",
-    semi: "badge-purple",
+    observe: "badge-blue",
+    recommend: "badge-yellow",
+    execute: "badge-purple",
     autonomous: "badge-red",
   };
 
   const statusBadge: Record<string, string> = {
     pending: "badge-yellow",
     approved: "badge-green",
-    executed: "badge-gray",
+    done: "badge-gray",
+    rejected: "badge-red",
   };
 
   return (

@@ -2,6 +2,7 @@ import type { DatabaseService } from "@employeeos/database";
 import type { AIProvider } from "@employeeos/ai";
 import { detectAnomalies, synthesizeObservations } from "@employeeos/observer";
 import { promotePatterns } from "@employeeos/learner";
+import { executeApprovedPlans } from "@employeeos/executor";
 import { rankOpportunities, composePlan } from "@employeeos/planner";
 import { generateMorningBrief, generateWeeklyReview, computeHealthScore } from "@employeeos/reporter";
 
@@ -13,6 +14,7 @@ export interface BrainTickResult {
   anomalies: string[];
   synthesis: string;
   newPlans: number;
+  executedPlans: number;
 }
 
 // -- Sub-agent spawning -------------------------------------------------------
@@ -164,6 +166,12 @@ export async function hourlyTick(
   log("Learner: promoting patterns...");
   await promotePatterns(db, ai, companyId);
 
+  log("Executor: running approved plans...");
+  const executedPlans = await executeApprovedPlans(db, ai, companyId, onLog);
+  if (executedPlans > 0) {
+    notify(`${executedPlans} plan${executedPlans > 1 ? "s" : ""} executed — learnings recorded`);
+  }
+
   // Run all employees in parallel — each is a focused sub-agent team
   const employees = await db.getEmployees(companyId);
   if (employees.length > 0) {
@@ -182,7 +190,7 @@ export async function hourlyTick(
       notify(`${totalPlans} new AI plan${totalPlans > 1 ? "s" : ""} created — review with: employeeos plans`);
     }
     log(`Hourly tick complete. Anomalies: ${anomalies.length}, Plans created: ${totalPlans}`);
-    return { anomalies, synthesis, newPlans: totalPlans };
+    return { anomalies, synthesis, newPlans: totalPlans, executedPlans };
   }
 
   // Fallback: no employees hired, run CEO analysis
@@ -194,8 +202,8 @@ export async function hourlyTick(
     newPlans++;
   }
   if (newPlans > 0) notify(`${newPlans} new AI plan${newPlans > 1 ? "s" : ""} ready — review with: employeeos plans`);
-  log(`Hourly tick complete. Anomalies: ${anomalies.length}, New plans: ${newPlans}`);
-  return { anomalies, synthesis, newPlans };
+  log(`Hourly tick complete. Anomalies: ${anomalies.length}, New plans: ${newPlans}, Executed: ${executedPlans}`);
+  return { anomalies, synthesis, newPlans, executedPlans };
 }
 
 // -- Daily tick ---------------------------------------------------------------

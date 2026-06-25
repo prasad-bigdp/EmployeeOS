@@ -140,9 +140,17 @@ export async function startGateway(port = 3001): Promise<{
     const plans = await db.getPendingPlans(config.companyId);
     const learnings = await db.getRecentLearnings(config.companyId, 5);
     const reports = await db.getRecentReports(config.companyId, 3);
+
+    const planEventType = (status: string) => {
+      if (status === "approved") return "plan.approved";
+      if (status === "rejected") return "plan.rejected";
+      if (status === "done") return "plan.executed";
+      return "plan.created";
+    };
+
     return {
       items: [
-        ...plans.map(p => ({ type: "plan.created", detail: p.title, status: p.status, createdAt: p.createdAt })),
+        ...plans.map(p => ({ type: planEventType(p.status), detail: p.title, status: p.status, createdAt: p.createdAt })),
         ...learnings.map(l => ({ type: "learning.created", detail: l.pattern, subject: l.subject, createdAt: l.lastSeen })),
         ...reports.map(r => ({ type: "report.generated", detail: r.title, createdAt: r.createdAt })),
       ].sort((a, b) => b.createdAt.localeCompare(a.createdAt))

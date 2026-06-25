@@ -8,6 +8,11 @@
     "build": "tsup src/index.ts --format esm --dts --out-dir dist",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
+  "dependencies": {
+    "@employeeos/database": "workspace:*",
+    "@employeeos/ai": "workspace:*",
+    "@employeeos/learner": "workspace:*"
+  },
   "devDependencies": {
     "tsup": "^8.3.5",
     "typescript": "^5.8.3"

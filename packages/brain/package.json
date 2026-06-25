@@ -13,6 +13,7 @@
     "@employeeos/ai": "workspace:*",
     "@employeeos/observer": "workspace:*",
     "@employeeos/learner": "workspace:*",
+    "@employeeos/executor": "workspace:*",
     "@employeeos/planner": "workspace:*",
     "@employeeos/reporter": "workspace:*"
   },

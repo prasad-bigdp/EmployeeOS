@@ -71,6 +71,7 @@ server.tool(
         text = cached.body;
       } else {
         const report = await generateMorningBrief(db, ai, config.companyId);
+        await db.createReport(config.companyId, report.title, report.body, "morning_brief", report.score);
         text = report.body;
       }
       return { content: [{ type: "text" as const, text }] };
