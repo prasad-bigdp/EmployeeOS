@@ -10,9 +10,9 @@ Not a chatbot. Not a task runner. Something between a Chief of Staff and an alwa
 
 When you run `employeeos start`, three things happen in a loop:
 
-**Every hour** — each AI employee you hired (Marketing, Sales, Support, Finance, HR) analyzes their domain using two parallel sub-agents: one that looks for problems, one that recommends the next action. If anything is worth doing, a plan gets created and queued for your approval.
+**Every hour** — each AI employee you hired (Marketing, Sales, Support, Finance, HR) analyzes their domain using two parallel sub-agents: one that scans for problems, one that recommends the next action. If anything is worth doing, a plan is created and queued for your approval. Approved plans get executed, and the outcome gets recorded as a learning that feeds future decisions. New emails in your inbox (if IMAP is configured) are scanned and turned into business signals automatically.
 
-**Every day** — a Morning Brief lands in your web dashboard (and Telegram, and email if you configured them). Health score gets updated.
+**Every day** — a Morning Brief lands in your web dashboard and Telegram (and email, if configured). Health score gets updated. The brief is cached — you always see today's, and every surface (terminal, Telegram, MCP, gateway) shows the same one.
 
 **Every week** — an executive review summarizes what happened, what the patterns are, and what to focus on next.
 
@@ -20,11 +20,22 @@ Everything is stored locally in a SQLite database at `~/.employeeos/brain.db`. N
 
 ---
 
+## The decision loop
+
+Plans follow a full lifecycle you can trace:
+
+```
+observation → plan (pending) → approved → executed → learning
+                                       ↘ failed    → logged
+```
+
+Every step is written to an events table. The web dashboard, Telegram, and MCP server all read from the same event history — nothing is synthesized from current state.
+
+---
+
 ## Install
 
 Three ways to run it — pick whichever works for you.
-
----
 
 ### Option 1: npm (easiest)
 
@@ -35,14 +46,11 @@ employeeos init
 
 Node.js 20+ required. That's it.
 
----
-
 ### Option 2: Docker
 
 No Node.js needed. Your data persists in `~/.employeeos` on your host machine.
 
 ```bash
-# Pull and run
 docker run -it \
   -p 3001:3001 \
   -v ~/.employeeos:/root/.employeeos \
@@ -56,8 +64,6 @@ Or use docker-compose (recommended):
 ```bash
 git clone https://github.com/prasad-bigdp/EmployeeOS
 cd employeeos
-
-# Set your AI key
 echo "ANTHROPIC_API_KEY=your_key_here" > .env
 
 # First-time setup (interactive)
@@ -65,37 +71,26 @@ docker compose run --rm employeeos init
 
 # Start the brain
 docker compose up -d
-
 # Open http://localhost:3001
 ```
 
 Interactive commands (`init`, `telegram`, `email`) need `-it`. The `start` command runs fine detached (`-d`).
 
----
-
 ### Option 3: Clone and build
 
-Gives you the full source to modify.
-
 ```bash
-# You need pnpm
 npm install -g pnpm
-
 git clone https://github.com/prasad-bigdp/EmployeeOS
 cd employeeos
 pnpm install
 pnpm build
 ```
 
-After building, the CLI is at `apps/terminal/dist/index.js`:
+After building:
 
 ```bash
 node apps/terminal/dist/index.js init
-```
-
-Or link it globally:
-
-```bash
+# or link globally:
 npm link apps/terminal
 employeeos init
 ```
@@ -104,16 +99,14 @@ employeeos init
 
 ## Setup
 
-Run `employeeos init` (or `node apps/terminal/dist/index.js init` before linking).
-
-It asks you nine questions and takes about five minutes:
+Run `employeeos init` — it asks you nine questions and takes about five minutes:
 
 1. Company name, industry, one-sentence description
 2. Whether you have multiple brands
 3. Your name and email (for personalized briefs)
 4. AI provider (see below)
 5. Your top business goals
-6. Which systems to connect (optional, you can skip)
+6. Which systems to connect (optional)
 7. Documents to read — strategy docs, business plans, anything (optional)
 8. Which AI employees to hire
 9. How autonomous the brain should be
@@ -124,17 +117,15 @@ At the end it generates your first intelligence report and saves everything.
 
 ## Choosing an AI provider
 
-This is the only thing that costs money to run. Pick one:
-
-**Anthropic (Claude)** — best quality, what we built and test with. Get a key at console.anthropic.com. About $2–5/month at normal usage.
+**Anthropic (Claude)** — best quality, what we build and test with. Get a key at console.anthropic.com. About $2–5/month at normal usage.
 
 **OpenAI (GPT-4o)** — works great, widely available. Get a key at platform.openai.com.
 
-**OpenRouter** — one key, 400+ models. Great if you want to try different models or use something like Gemini or Llama. Get a key at openrouter.ai. Recommended model to start: `openai/gpt-4o-mini`.
+**OpenRouter** — one key, 400+ models. Great if you want to try different models. Get a key at openrouter.ai. Recommended starting model: `openai/gpt-4o-mini`.
 
-**Ollama** — completely free and local. No API key. Runs on your machine. Install it from ollama.com, pull a model (`ollama pull llama3.2`), then select Ollama during setup. Quality is lower than cloud models but it costs nothing and never sends data anywhere.
+**Ollama** — completely free and local. No API key. Runs on your machine. Install from ollama.com, pull a model (`ollama pull llama3.2`), then select Ollama during setup. Quality is lower than cloud models but costs nothing.
 
-If you have an `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `OPENROUTER_API_KEY` environment variable set, setup will detect it automatically and skip asking.
+If you have `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `OPENROUTER_API_KEY` set in your environment, setup will detect it automatically.
 
 ---
 
@@ -142,27 +133,34 @@ If you have an `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `OPENROUTER_API_KEY` en
 
 ```
 employeeos                      Dashboard: goals, health score, latest brief
-employeeos start                Start the brain loop + open web UI
+employeeos start                Start the brain loop + open web UI at :3001
 employeeos brief                Generate today's morning brief right now
 employeeos think "question"     Ask the brain anything about your company
 employeeos status               Health, goals, pending plans
 employeeos plans                List AI-generated plans waiting for review
 employeeos employees            See who you've hired and their roles
+employeeos import <file>        Import metrics from CSV, JSON, or PDF
+employeeos browse <url>         Extract metrics from a live dashboard URL
+employeeos email                Set up email notifications + inbox reading
+employeeos telegram             Connect Telegram for alerts and plan approval
+employeeos skills               Manage custom employee skills
+employeeos mcp                  Start the MCP server for Claude Desktop
 ```
 
-`employeeos start` opens `http://localhost:3001` with a full web dashboard — real-time terminal showing what the brain is doing, your morning brief, a chat interface, and your active plans.
+`employeeos start` opens `http://localhost:3001` with a full web dashboard — real-time terminal showing what the brain is doing, your morning brief, a chat interface, active plans, and your full event history.
 
 ---
 
-## Import your existing data
+## Getting data in
 
-The brain is more useful the sooner it has real data. You can dump your existing metrics into it with a CSV:
+The brain is more useful the sooner it has real data. There are four ways to feed it:
+
+### CSV import
 
 ```bash
 employeeos import
 # Choose "Generate sample CSV template"
-# Opens ~/.employeeos/sample-metrics.csv
-# Fill in your actual numbers
+# Fill it in, then:
 employeeos import ~/.employeeos/sample-metrics.csv
 ```
 
@@ -170,16 +168,44 @@ The CSV has seven columns: `date, category, metric, value, unit, brand, notes`
 
 Categories: `revenue`, `marketing`, `sales`, `support`, `hr`, `finance`, `operations`
 
-You can also point it at a folder of PDFs, strategy docs, or plain text files:
+### PDF import
+
+Drop in any business document — reports, audits, strategy decks, contracts — and the brain extracts business signals with AI:
 
 ```bash
-employeeos import ~/Documents/company-reports/
+employeeos import quarterly-review.pdf
+employeeos import ~/Downloads/market-research.pdf
 ```
 
-Or have it open a dashboard URL and extract the numbers automatically (requires Chrome running with `--remote-debugging-port=9222`):
+The AI reads the document and pulls out concrete signals (revenue figures, headcount changes, market shifts, competitive mentions) and saves each one as a separate observation. Every signal shows up in your event history.
+
+### Browser automation
+
+Have the brain open a live dashboard URL and extract the numbers automatically (requires Chrome running with `--remote-debugging-port=9222`):
 
 ```bash
 employeeos browse https://analytics.example.com/dashboard
+employeeos browse https://app.hubspot.com/contacts/deals "extract pipeline metrics"
+```
+
+### Webhook receiver
+
+Any external tool can POST directly to your running gateway and the payload becomes an observation immediately — no polling needed:
+
+```
+POST http://localhost:3001/webhook/stripe
+POST http://localhost:3001/webhook/hubspot
+POST http://localhost:3001/webhook/github
+POST http://localhost:3001/webhook/shopify
+```
+
+The source name (`stripe`, `hubspot`, etc.) is auto-mapped to a signal category. Any JSON body is accepted. Use this from Zapier, n8n, GitHub Actions, or any platform that supports webhooks.
+
+```bash
+# Example: Stripe payment failure becomes a finance observation
+curl -X POST http://localhost:3001/webhook/stripe \
+  -H "Content-Type: application/json" \
+  -d '{"type":"payment_intent.payment_failed","amount":4900,"customer":"cus_abc"}'
 ```
 
 ---
@@ -192,48 +218,69 @@ employeeos browse https://analytics.example.com/dashboard
 employeeos telegram
 ```
 
-1. Go to [@BotFather](https://t.me/BotFather) in Telegram and create a new bot (`/newbot`)
+1. Go to [@BotFather](https://t.me/BotFather) and create a bot (`/newbot`)
 2. Copy the token it gives you
-3. Paste it when prompted
-4. Send `/start` to your new bot — the setup detects your chat ID automatically
+3. Paste it when prompted — setup detects your chat ID automatically
 
-Your bot will then send morning briefs, anomaly alerts, and plan notifications. When a plan needs approval, you get inline Approve / Reject buttons right in Telegram.
+Your bot will send morning briefs, anomaly alerts, and plan notifications. When a plan needs approval you get inline **Approve / Reject** buttons right in Telegram. Approvals and rejections are written to the event history immediately.
 
-Bot commands you can use anytime:
-- `/brief` — latest brief
+Bot commands:
+- `/brief` — today's morning brief (cached, instant)
 - `/status` — health score, goals, active employees
-- `/plans` — pending plans (with approve/reject buttons)
+- `/plans` — pending plans with approve/reject buttons
 - `/ask your question here` — ask the brain from your phone
 
-### Email
+### Email (send + inbox reading)
 
 ```bash
 employeeos email
 ```
 
-Works with Gmail (you'll need an App Password), Outlook, or any SMTP server. After connecting, you get the same briefs and alerts in your inbox.
+**Outbound (SMTP):** morning briefs, anomaly alerts, and plan notifications. Works with Gmail (App Password), Outlook, or any SMTP server.
 
 For Gmail App Passwords: Google Account → Security → 2-Step Verification → App passwords.
+
+**Inbound (IMAP):** after setting up SMTP, you're asked if you also want to read your inbox. If you say yes, the brain connects to your mailbox every hour and extracts business signals from incoming emails — customer inquiries, deal updates, support escalations, partner messages. Only genuine human communication is extracted; newsletters and automated alerts are skipped.
+
+The brain remembers which emails it has already processed (checkpoint stored in the database) so the same email is never imported twice.
+
+---
+
+## How plans work
+
+The brain creates plans when employees identify opportunities. Each plan has:
+
+- **Employee role** — which AI employee created it
+- **Autonomy level** — `observe` / `recommend` / `execute` / `autonomous`
+- **Status** — `pending` → `approved` → `done` or `failed`
+
+Plans that require approval wait in the queue. You can approve or reject from:
+- The web dashboard
+- Telegram inline buttons
+- The terminal (`employeeos plans`)
+
+When a plan is executed, the brain:
+1. Creates an **execution record** (stored in the database even on failure)
+2. Runs the plan and generates an outcome report
+3. Extracts a **learning** from the outcome (subject + pattern + confidence)
+4. Links the learning back to the execution record so every pattern is traceable
+5. Writes a `plan.executed` or `plan.failed` event to the history
+
+Failed plans show with a red badge in the dashboard and appear in the event feed — nothing is silently dropped.
 
 ---
 
 ## Custom Skills
 
-Skills are Markdown files that teach your AI employees specific behaviors. Put them in `~/.employeeos/skills/` and they get loaded automatically when you start the brain.
-
-To get started with examples:
+Skills are Markdown files that teach your AI employees specific behaviors. Put them in `~/.employeeos/skills/` and they get loaded automatically.
 
 ```bash
-employeeos skills --install-samples
+employeeos skills --install-samples   # install 5 example skills
+employeeos skills --list              # see what's loaded
+employeeos skills --open              # open the skills folder
 ```
 
-This drops five sample skills into your skills folder. Open the folder to see them:
-
-```bash
-employeeos skills --open
-```
-
-Each skill file looks like this:
+A skill file looks like this:
 
 ```markdown
 ---
@@ -247,22 +294,22 @@ If you find any, lead with: ⚠️ Competitor signal: [what you found]
 Don't bury this in general analysis. Make it obvious.
 ```
 
-The `roles` field controls which employees see the skill. Use `roles: [*]` to apply it to everyone.
+The `roles` field controls which employees see the skill. Use `roles: [*]` to apply to everyone. Skills are plain English — no code, no configuration syntax to learn.
 
-Skills are plain text — no code, no configuration format to learn. Write what you want the AI to do, in plain English. That's it.
-
-```bash
-employeeos skills         # list loaded skills
-employeeos skills --open  # open skills folder in file explorer
-```
+Five sample skills are included:
+- `okr-weekly-format` — structures reviews as OKR snapshots
+- `competitor-watch` — surfaces competitor signals in analysis
+- `anomaly-escalation` — adds urgency markers for critical anomalies
+- `standup-format` — formats daily briefs as async standups
+- `finance-burn-alert` — flags runway and burn rate red lines
 
 ---
 
 ## Claude Desktop (MCP)
 
-EmployeeOS has a built-in MCP server, so you can talk to your company brain from inside Claude Desktop.
+EmployeeOS has a built-in MCP server so you can talk to your company brain from inside Claude Desktop.
 
-Add this to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on Mac, `%APPDATA%\Claude\claude_desktop_config.json` on Windows):
+Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on Mac, `%APPDATA%\Claude\claude_desktop_config.json` on Windows):
 
 ```json
 {
@@ -270,6 +317,19 @@ Add this to your Claude Desktop config (`~/Library/Application Support/Claude/cl
     "employeeos": {
       "command": "node",
       "args": ["path/to/employeeos/apps/terminal/dist/index.js", "mcp"]
+    }
+  }
+}
+```
+
+Or if installed via npm:
+
+```json
+{
+  "mcpServers": {
+    "employeeos": {
+      "command": "employeeos",
+      "args": ["mcp"]
     }
   }
 }
@@ -283,41 +343,47 @@ Available tools from inside Claude: `think`, `get_brief`, `get_status`, `import_
 
 `employeeos start` serves a dashboard at `http://localhost:3001`:
 
-- **Dashboard** — health score, active goals with progress bars, AI employees
-- **Morning Brief** — today's report, refresh button
+- **Dashboard** — health score (0–100), active goals with progress bars, AI employees
+- **Morning Brief** — today's cached report, force-refresh button
 - **Ask Brain** — chat interface with full company context
-- **AI Plans** — list of plans created by your employees
-- **Live Terminal** — real-time stream of what the brain is doing
-- **Integrations** — Telegram status, employee list
+- **AI Plans** — all plans with status badges (`pending`, `approved`, `done`, `failed`, `rejected`)
+- **Event History** — full audit trail read directly from the events table: every plan created, approved, rejected, executed, or failed; every learning extracted; every report generated; every webhook or email signal ingested
+- **Live Terminal** — real-time stream of what the brain is doing this tick
 
 ---
 
 ## Architecture
 
-It's a pnpm monorepo with turborepo. The packages are loosely coupled — you could use just the AI provider, just the database, just the observer, etc.
+pnpm monorepo with turborepo. Packages are loosely coupled — use just the brain loop, just the database layer, or everything together.
 
 ```
 apps/
-  terminal/   The CLI and main entry point (employeeos binary)
-  gateway/    Fastify server: REST API + WebSocket + serves the web UI
-  web/        React + Vite dashboard (xterm.js live terminal)
+  terminal/   CLI and main entry point (employeeos binary)
+  gateway/    Fastify server — REST API + WebSocket + webhook receiver + web UI
+  web/        React + Vite dashboard
 
 packages/
-  ai/         Provider abstraction for Anthropic, OpenAI, OpenRouter, Ollama
-  brain/      The main loop: hourly/daily/weekly ticks, parallel employees
+  ai/         Provider abstraction: Anthropic, OpenAI, OpenRouter, Ollama
+  brain/      Main loop: hourly/daily/weekly ticks, parallel employee agents
   database/   SQLite via sql.js (pure WASM, no native deps), Drizzle ORM
-  observer/   Signal detection and anomaly detection
-  learner/    Pattern extraction and knowledge promotion
-  planner/    Opportunity ranking and plan generation
-  reporter/   Morning briefs, weekly reviews, health scoring, Q&A
+  observer/   Signal detection and anomaly analysis
+  learner/    Pattern extraction, knowledge promotion, learning-to-execution links
+  executor/   Plan execution engine with durable execution records
+  planner/    Opportunity ranking and plan composition
+  reporter/   Brief service (getOrGenerateBrief), weekly reviews, health scoring
   employees/  AI employee role definitions
   skills/     Markdown-based skill system
-  email/      Email notifications (nodemailer)
-  telegram/   grammy bot, plan approval buttons
+  email/      SMTP notifications + IMAP inbox reading (imapflow)
+  telegram/   grammy bot, plan approval buttons, event emission on approve/reject
   mcp/        MCP server for Claude Desktop
-  browser/    Playwright browser automation
-  shared/     Types and constants used across packages
+  browser/    Playwright browser automation and metric extraction
+  events/     Shared event type definitions
+  shared/     Types and constants
 ```
+
+**Database tables:** `companies`, `brands`, `goals`, `employees`, `integrations`, `observations`, `learnings`, `plans`, `executions`, `reports`, `health_scores`, `knowledge`, `documents`, `events`, `settings`
+
+The `executions` table links every plan to its outcome: `planId → status → outcome → error → learningId`. Every learning can be traced back to an execution and the plan that caused it.
 
 ---
 
@@ -327,27 +393,25 @@ Everything lives in `~/.employeeos/`:
 
 ```
 ~/.employeeos/
-  config.json       Your config — AI keys, company ID, notification settings
-  brain.db          SQLite database — companies, goals, plans, learnings, reports
-  docs/             Indexed documents you've uploaded
-  skills/           Your custom skill Markdown files
-  sample-metrics.csv  CSV template (generated on first import)
+  config.json          AI keys, company ID, SMTP/IMAP/Telegram settings
+  brain.db             SQLite — all company data, plans, learnings, events
+  docs/                Indexed documents you've uploaded
+  skills/              Your custom skill Markdown files
+  sample-metrics.csv   CSV template (generated on first import)
 ```
 
-The only outbound connections are to your AI provider's API (Anthropic, OpenAI, etc.) and to Telegram's API if you've connected a bot. Nothing else.
+The only outbound connections are to your AI provider's API and Telegram's API if you've connected a bot. Nothing else.
 
 ---
 
 ## Roadmap
 
-Things we're planning to add:
-
-- WhatsApp integration
-- Slack notifications
-- Email digest (Gmail / Outlook) read-back, not just send
-- Google Analytics direct import
-- HubSpot and Zoho CRM connectors
-- Skills marketplace (community skill files)
+- GitHub integration — repo health metrics as observations, create issues/PRs as plan actions
+- Slack reading — scan team channels for business signals
+- Google Calendar — read upcoming meetings, add context to morning brief
+- CRM connectors — HubSpot, Zoho direct pull
+- Google Analytics import
+- Skills marketplace — community skill files
 - Desktop app (Tauri)
 - Team / multi-user support
 
@@ -355,38 +419,32 @@ Things we're planning to add:
 
 ## Contributing
 
-PRs welcome. The codebase is TypeScript throughout. Each package has its own `build` and `typecheck` scripts. Run `pnpm turbo build` from root to build everything.
+PRs welcome. TypeScript throughout. Each package has its own `build` and `typecheck` scripts.
 
-The packages are designed to be independent — if you want to build something on top of just the brain loop, or just the database layer, you can do that without pulling in the full CLI.
+```bash
+pnpm turbo build        # build everything
+pnpm turbo typecheck    # type-check everything
+```
+
+The packages are designed to be independent — if you want to build on just the brain loop or just the database layer, you can without pulling in the full CLI.
 
 ---
 
-## Publishing a new version (maintainers)
+## Publishing (maintainers)
 
 ```bash
-# Dry run first — checks what would be published
-pnpm publish:npm:dry
-
-# Actual publish
-pnpm publish:npm
+pnpm publish:npm:dry    # dry run — checks what would be published
+pnpm publish:npm        # actual publish
 ```
 
-The publish script (`scripts/prepare-publish.mjs`) does this automatically:
+The publish script (`scripts/prepare-publish.mjs`):
 1. Builds everything with `pnpm turbo build`
-2. Copies the web UI into `apps/terminal/dist/web/` so the dashboard is bundled
+2. Copies the web UI into `apps/terminal/dist/web/`
 3. Swaps `package.json` to use real npm dep versions (not `workspace:*`)
 4. Runs `npm publish`
 5. Restores the original `package.json`
 
-All internal `@employeeos/*` packages get bundled into a single `dist/index.js` (~4.5 MB). Users don't need to install any of them separately.
-
-**Building the Docker image:**
-
-```bash
-docker build -t employeeos:latest .
-docker tag employeeos:latest ghcr.io/prasad-bigdp/EmployeeOS:latest
-docker push ghcr.io/prasad-bigdp/EmployeeOS:latest
-```
+All internal `@employeeos/*` packages get bundled into a single `dist/index.js`. Users install one package and get everything.
 
 ---
 
