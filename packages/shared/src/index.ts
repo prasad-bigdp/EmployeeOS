@@ -112,7 +112,7 @@ export interface Plan {
   employeeRole: string;
   title: string;
   actions: PlanAction[];
-  status: "pending" | "approved" | "executing" | "done" | "rejected";
+  status: "pending" | "approved" | "executing" | "done" | "rejected" | "failed";
   autonomyRequired: AutonomyLevel;
 }
 

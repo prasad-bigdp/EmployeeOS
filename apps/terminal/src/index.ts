@@ -1557,19 +1557,30 @@ async function runComposioSetup(config: AppConfig, targetApp?: string) {
 
   const { listConnections } = await import("@employeeos/composio");
   const listSpinner = ora("  Loading connected apps...").start();
-  let connections: Array<{ appName: string; status: string }> = [];
+  let liveConnections: Array<{ appName: string; status: string; id: string }> = [];
   try {
-    connections = await listConnections(config.composioApiKey!);
-    listSpinner.succeed(`  ${connections.length} app${connections.length !== 1 ? "s" : ""} connected`);
+    liveConnections = (await listConnections(config.composioApiKey!)) as Array<{ appName: string; status: string; id: string }>;
+    listSpinner.succeed(`  ${liveConnections.length} app${liveConnections.length !== 1 ? "s" : ""} authorized in Composio`);
   } catch {
-    listSpinner.warn("  Could not load connections (network issue)");
+    listSpinner.warn("  Could not reach Composio API (will use local state)");
   }
 
-  if (connections.length > 0) {
+  // Sync authoritative Composio connection state into local DB
+  if (liveConnections.length > 0) {
+    const dbSync = await openDB(config);
+    for (const lc of liveConnections) {
+      await dbSync.upsertToolConnection(
+        config.companyId,
+        `composio:${lc.appName.toLowerCase()}`,
+        "connected",
+        { connectionId: lc.id }
+      );
+    }
+    dbSync.close();
     console.log("");
-    info("Currently connected apps:");
-    for (const c of connections) {
-      ok(`  ${c.appName} — ${c.status}`);
+    info("Connected apps:");
+    for (const lc of liveConnections) {
+      ok(`  ${lc.appName} — ${lc.status}`);
     }
     console.log("");
   }
@@ -1607,11 +1618,14 @@ async function runComposioSetup(config: AppConfig, targetApp?: string) {
     console.log("");
     info("After authorizing, return here and run `employeeos connect` again to verify.");
 
+    // Store a per-app row (composio:<app>) — status "pending_auth" until confirmed
     const db = await openDB(config);
-    const existing = await db.getToolConnection(config.companyId, "composio");
-    const apps: string[] = ((existing?.config as { apps?: string[] })?.apps ?? []);
-    if (!apps.includes(appToConnect)) apps.push(appToConnect);
-    await db.upsertToolConnection(config.companyId, "composio", "connected", { apps });
+    await db.upsertToolConnection(
+      config.companyId,
+      `composio:${appToConnect}`,
+      "pending_auth",
+      { connectionId: result.connectionId ?? null }
+    );
     db.close();
   } catch (err) {
     oauthSpinner.fail("  Failed: " + (err as Error).message);

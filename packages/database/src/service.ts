@@ -2,7 +2,7 @@ import fs from "node:fs";
 import initSqlJs from "sql.js";
 import type { Database, SqlJsStatic, BindParams } from "sql.js";
 import { drizzle, type SqliteRemoteDatabase } from "drizzle-orm/sqlite-proxy";
-import { and, eq, desc, isNull } from "drizzle-orm";
+import { and, eq, desc, isNull, lt } from "drizzle-orm";
 import * as schema from "./schema.js";
 import { runMigrations } from "./migrations.js";
 
@@ -572,13 +572,21 @@ export class DatabaseService {
     return id;
   }
 
-  async getEvents(companyId: string, limit = 50) {
+  async getEvents(
+    companyId: string,
+    limit = 50,
+    before?: string
+  ) {
+    const conditions = before
+      ? and(eq(schema.events.companyId, companyId), lt(schema.events.occurredAt, before))
+      : eq(schema.events.companyId, companyId);
     const rows = await this.db
       .select()
       .from(schema.events)
-      .where(eq(schema.events.companyId, companyId))
-      .orderBy(desc(schema.events.occurredAt));
-    return rows.slice(0, limit).map(e => ({
+      .where(conditions)
+      .orderBy(desc(schema.events.occurredAt))
+      .limit(limit);
+    return rows.map(e => ({
       ...e,
       payload: JSON.parse(e.payload) as Record<string, unknown>
     }));

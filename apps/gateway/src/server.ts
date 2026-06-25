@@ -135,16 +135,21 @@ export async function startGateway(port = 3001): Promise<{
     return db.getRecentObservations(config.companyId, 20);
   });
 
-  server.get("/api/events", async (_, reply) => {
+  server.get("/api/events", async (request, reply) => {
     if (!db || !config) return reply.code(503).send({ error: "Not initialized" });
-    const events = await db.getEvents(config.companyId, 50);
+    const query = request.query as { limit?: string; before?: string };
+    const limit = Math.min(Math.max(1, parseInt(query.limit ?? "50", 10) || 50), 200);
+    const before = query.before ?? undefined;
+    const events = await db.getEvents(config.companyId, limit, before);
     return {
       items: events.map(e => ({
         type: e.type,
         detail: (e.payload.title ?? e.payload.subject ?? e.type) as string,
         payload: e.payload,
         createdAt: e.occurredAt,
-      }))
+      })),
+      // cursor for the next page: occurredAt of the last item returned
+      nextCursor: events.length === limit ? events[events.length - 1]!.occurredAt : null,
     };
   });
 
@@ -163,9 +168,17 @@ export async function startGateway(port = 3001): Promise<{
         repo: config.githubRepo ?? null,
       },
       composio: {
-        connected: Boolean(config.composioApiKey),
-        status: composioConn?.status ?? (config.composioApiKey ? "connected" : "disconnected"),
-        apps: composioConn ? ((composioConn.config as { apps?: string[] }).apps ?? []) : [],
+        // API key is the prerequisite; individual app rows are one-per-app
+        keyConfigured: Boolean(config.composioApiKey),
+        // Per-app connection rows: tool = "composio:slack", "composio:gmail", etc.
+        apps: connections
+          .filter(c => c.tool.startsWith("composio:"))
+          .map(c => ({
+            app: c.tool.replace("composio:", ""),
+            status: c.status,
+            connectedAt: c.connectedAt ?? null,
+            connectionId: (c.config as { connectionId?: string }).connectionId ?? null,
+          })),
       },
     };
   });
