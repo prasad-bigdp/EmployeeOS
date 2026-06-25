@@ -612,7 +612,13 @@ async function showBrief(config: AppConfig) {
   const spinner = ora("  Generating morning brief...").start();
 
   try {
-    const report = await generateMorningBrief(db, ai, config.companyId);
+    // Reuse today's saved brief if it exists; otherwise generate and save one
+    let report = await db.getTodayReport(config.companyId, "morning_brief");
+    if (!report) {
+      const generated = await generateMorningBrief(db, ai, config.companyId);
+      const id = await db.createReport(config.companyId, generated.title, generated.body, "morning_brief", generated.score);
+      report = await db.getLatestReport(config.companyId, "morning_brief") ?? { ...generated, id, createdAt: new Date().toISOString(), kind: "morning_brief", companyId: config.companyId };
+    }
     spinner.succeed("  Morning brief ready");
     banner();
     divider();

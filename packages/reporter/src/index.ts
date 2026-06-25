@@ -148,9 +148,6 @@ Be sharp and specific. No generic platitudes.`;
 
   const title = `Morning Brief — ${date}`;
 
-  await db.createReport(companyId, title, body, "morning_brief", score);
-  await db.createHealthScore(companyId, score, {});
-
   return { title, body, score };
 }
 
