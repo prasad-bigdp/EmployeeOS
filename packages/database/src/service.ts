@@ -608,6 +608,112 @@ export class DatabaseService {
     this.save();
   }
 
+  // ── Execution Steps ────────────────────────────────────────────────────────
+
+  async createExecutionStep(
+    executionId: string,
+    companyId: string,
+    tool: string,
+    operation: string,
+    input: Record<string, unknown>,
+    expectedOutcome?: string
+  ): Promise<string> {
+    const id = uid();
+    await this.db.insert(schema.executionSteps).values({
+      id,
+      executionId,
+      companyId,
+      tool,
+      operation,
+      input: JSON.stringify(input),
+      expectedOutcome: expectedOutcome ?? null,
+      status: "pending",
+    });
+    this.save();
+    return id;
+  }
+
+  async updateExecutionStep(
+    stepId: string,
+    fields: {
+      status?: string;
+      result?: Record<string, unknown>;
+      error?: string;
+      startedAt?: string;
+      completedAt?: string;
+    }
+  ): Promise<void> {
+    await this.db
+      .update(schema.executionSteps)
+      .set({
+        ...(fields.status !== undefined && { status: fields.status }),
+        ...(fields.result !== undefined && { result: JSON.stringify(fields.result) }),
+        ...(fields.error !== undefined && { error: fields.error }),
+        ...(fields.startedAt !== undefined && { startedAt: fields.startedAt }),
+        ...(fields.completedAt !== undefined && { completedAt: fields.completedAt }),
+      })
+      .where(eq(schema.executionSteps.id, stepId));
+    this.save();
+  }
+
+  async getExecutionSteps(executionId: string) {
+    const rows = await this.db
+      .select()
+      .from(schema.executionSteps)
+      .where(eq(schema.executionSteps.executionId, executionId));
+    return rows.map(r => ({
+      ...r,
+      input: JSON.parse(r.input) as Record<string, unknown>,
+      result: r.result ? JSON.parse(r.result) as Record<string, unknown> : null,
+    }));
+  }
+
+  // ── Tool Connections ────────────────────────────────────────────────────────
+
+  async getToolConnection(companyId: string, tool: string) {
+    const rows = await this.db
+      .select()
+      .from(schema.toolConnections)
+      .where(and(eq(schema.toolConnections.companyId, companyId), eq(schema.toolConnections.tool, tool)))
+      .limit(1);
+    if (!rows[0]) return null;
+    return { ...rows[0], config: JSON.parse(rows[0].config) as Record<string, unknown> };
+  }
+
+  async upsertToolConnection(
+    companyId: string,
+    tool: string,
+    status: string,
+    config: Record<string, unknown>
+  ): Promise<void> {
+    const existing = await this.getToolConnection(companyId, tool);
+    const now = new Date().toISOString();
+    if (existing) {
+      await this.db
+        .update(schema.toolConnections)
+        .set({ status, config: JSON.stringify(config), connectedAt: now })
+        .where(and(eq(schema.toolConnections.companyId, companyId), eq(schema.toolConnections.tool, tool)));
+    } else {
+      await this.db.insert(schema.toolConnections).values({
+        id: uid(),
+        companyId,
+        tool,
+        status,
+        config: JSON.stringify(config),
+        connectedAt: now,
+      });
+    }
+    this.save();
+  }
+
+  async listToolConnections(companyId: string) {
+    const rows = await this.db
+      .select()
+      .from(schema.toolConnections)
+      .where(eq(schema.toolConnections.companyId, companyId));
+    return rows.map(r => ({ ...r, config: JSON.parse(r.config) as Record<string, unknown> }));
+  }
+
   // ── Utility ────────────────────────────────────────────────────────────────
 
   close() {

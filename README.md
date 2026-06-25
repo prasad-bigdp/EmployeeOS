@@ -141,6 +141,8 @@ employeeos plans                List AI-generated plans waiting for review
 employeeos employees            See who you've hired and their roles
 employeeos import <file>        Import metrics from CSV, JSON, or PDF
 employeeos browse <url>         Extract metrics from a live dashboard URL
+employeeos github               Connect GitHub (PAT) for issue/PR actions
+employeeos connect [app]        Connect SaaS apps via Composio (Slack, Gmail, Notion...)
 employeeos email                Set up email notifications + inbox reading
 employeeos telegram             Connect Telegram for alerts and plan approval
 employeeos skills               Manage custom employee skills
@@ -261,12 +263,77 @@ Plans that require approval wait in the queue. You can approve or reject from:
 
 When a plan is executed, the brain:
 1. Creates an **execution record** (stored in the database even on failure)
-2. Runs the plan and generates an outcome report
-3. Extracts a **learning** from the outcome (subject + pattern + confidence)
-4. Links the learning back to the execution record so every pattern is traceable
-5. Writes a `plan.executed` or `plan.failed` event to the history
+2. **Dispatches each step to the correct tool runner** — GitHub native, Composio SaaS, or AI text fallback
+3. Tracks every step separately (`execution_steps` table: started → done/failed)
+4. Extracts a **learning** from the outcome (subject + pattern + confidence)
+5. Links the learning back to the execution record so every pattern is traceable
+6. Writes step-level events to the history: `step.started`, `step.completed`, `step.failed`
 
 Failed plans show with a red badge in the dashboard and appear in the event feed — nothing is silently dropped.
+
+---
+
+## Real integrations
+
+EmployeeOS v1.1 can execute real actions, not just generate text. Plans with structured steps call live APIs:
+
+### GitHub (native)
+
+```bash
+employeeos github
+```
+
+Connect a Personal Access Token and EmployeeOS can:
+- Create issues automatically from anomaly observations
+- Comment on PRs with execution summaries
+- Open pull requests as plan steps
+- Add labels and close issues
+- Read open issue/PR counts as business signals
+
+Operations: `create_issue`, `comment_on_issue`, `create_pr`, `label_issue`, `close_issue`, `get_repo_health`
+
+### Composio (250+ SaaS apps)
+
+```bash
+employeeos connect
+employeeos connect slack
+employeeos connect gmail
+```
+
+Composio is the connector layer for non-core SaaS. One API key, OAuth-managed connections, 250+ apps:
+
+| App | What EmployeeOS can do |
+|-----|------------------------|
+| Slack | Send messages to channels |
+| Gmail | Send emails, read inbox |
+| Notion | Create pages, search |
+| HubSpot | Create deals, add contacts |
+| Stripe | Read balance, list customers |
+
+Get a free Composio API key at composio.dev. Run `employeeos connect <app>` for each app you want to authorize.
+
+### How structured plans work
+
+When the planner creates a plan with tool steps, each step looks like:
+
+```json
+{
+  "tool": "github",
+  "operation": "create_issue",
+  "input": { "title": "Anomaly: revenue dropped 23%", "labels": ["urgent"] },
+  "expectedOutcome": "Issue opened for team review"
+}
+```
+
+The executor routes it to the right runner (native GitHub or Composio), executes the call, and records the result in `execution_steps`. If a step fails, the plan is marked `failed` and the error is logged — other steps in the same plan continue.
+
+### Permission levels
+
+The `autonomyRequired` field on each plan controls what the executor will run automatically:
+- `observe` — never execute write actions automatically (read-only safe)
+- `recommend` — execute safe reads; write actions need approval
+- `execute` — run all steps for approved plans
+- `autonomous` — run all steps without per-plan approval
 
 ---
 
@@ -368,9 +435,12 @@ packages/
   database/   SQLite via sql.js (pure WASM, no native deps), Drizzle ORM
   observer/   Signal detection and anomaly analysis
   learner/    Pattern extraction, knowledge promotion, learning-to-execution links
-  executor/   Plan execution engine with durable execution records
+  executor/   Tool runner dispatch: GitHub native, Composio, AI fallback
   planner/    Opportunity ranking and plan composition
   reporter/   Brief service (getOrGenerateBrief), weekly reviews, health scoring
+  github/     Native GitHub integration via @octokit/rest (PAT auth)
+  composio/   Composio HTTP adapter — 250+ SaaS apps via one API key
+  plugins/    Tool capability registry with provider metadata
   employees/  AI employee role definitions
   skills/     Markdown-based skill system
   email/      SMTP notifications + IMAP inbox reading (imapflow)
@@ -378,12 +448,12 @@ packages/
   mcp/        MCP server for Claude Desktop
   browser/    Playwright browser automation and metric extraction
   events/     Shared event type definitions
-  shared/     Types and constants
+  shared/     Types and constants (PlanStep, ToolName, AppConfig)
 ```
 
-**Database tables:** `companies`, `brands`, `goals`, `employees`, `integrations`, `observations`, `learnings`, `plans`, `executions`, `reports`, `health_scores`, `knowledge`, `documents`, `events`, `settings`
+**Database tables:** `companies`, `brands`, `goals`, `employees`, `integrations`, `observations`, `learnings`, `plans`, `executions`, `execution_steps`, `reports`, `health_scores`, `knowledge`, `documents`, `events`, `settings`, `tool_connections`
 
-The `executions` table links every plan to its outcome: `planId → status → outcome → error → learningId`. Every learning can be traced back to an execution and the plan that caused it.
+The `executions` table links every plan to its outcome. The `execution_steps` table tracks each tool call within an execution: `executionId → tool → operation → status → result → error`. Every step emits `step.started`, `step.completed`, or `step.failed` events. Every learning can be traced back to a step, execution, and plan.
 
 ---
 
@@ -406,14 +476,15 @@ The only outbound connections are to your AI provider's API and Telegram's API i
 
 ## Roadmap
 
-- GitHub integration — repo health metrics as observations, create issues/PRs as plan actions
-- Slack reading — scan team channels for business signals
+- GitHub App installation tokens (currently PAT only)
+- Slack reading — scan team channels for business signals (Composio)
 - Google Calendar — read upcoming meetings, add context to morning brief
-- CRM connectors — HubSpot, Zoho direct pull
 - Google Analytics import
 - Skills marketplace — community skill files
 - Desktop app (Tauri)
 - Team / multi-user support
+- Plan step retry and partial re-execution
+- Audit log UI with step-level drill-down
 
 ---
 

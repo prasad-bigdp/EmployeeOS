@@ -131,6 +131,22 @@ export interface HealthScore {
 
 export type AIProviderName = "anthropic" | "openai" | "openrouter" | "ollama";
 
+export type ToolName = "github" | "slack" | "gmail" | "notion" | "hubspot" | "stripe" | "composio" | "browser";
+export type StepStatus = "pending" | "running" | "done" | "failed" | "skipped";
+
+export interface PlanStep {
+  id: string;
+  tool: ToolName;
+  operation: string;
+  input: Record<string, unknown>;
+  expectedOutcome?: string;
+  status: StepStatus;
+  result?: Record<string, unknown>;
+  error?: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+
 export interface OnboardingConfig {
   companyName: string;
   industry: Industry;
@@ -170,6 +186,10 @@ export interface AppConfig {
   imapUser?: string;
   imapPass?: string;
   imapTls?: boolean;
+  githubToken?: string;
+  githubOwner?: string;
+  githubRepo?: string;
+  composioApiKey?: string;
 }
 
 export const GOAL_LABELS: Record<GoalKind, string> = {

@@ -61,6 +61,7 @@ const PUBLISH_DEPS = {
   "papaparse": "^5.5.4",
   "pdf-parse": "^1.1.1",
   "pino": "^9.3.2",
+  "@octokit/rest": "^21.0.2",
 };
 
 const PKG_PATH = path.join(TERMINAL_DIR, "package.json");

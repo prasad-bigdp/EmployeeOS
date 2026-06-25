@@ -138,6 +138,30 @@ export const events = sqliteTable("events", {
   occurredAt: text("occurred_at").notNull()
 });
 
+export const executionSteps = sqliteTable("execution_steps", {
+  id: text("id").primaryKey(),
+  executionId: text("execution_id").notNull(),
+  companyId: text("company_id").notNull(),
+  tool: text("tool").notNull(),
+  operation: text("operation").notNull(),
+  input: text("input").notNull().default("{}"),
+  expectedOutcome: text("expected_outcome"),
+  status: text("status").notNull().default("pending"),
+  result: text("result"),
+  error: text("error"),
+  startedAt: text("started_at"),
+  completedAt: text("completed_at"),
+});
+
+export const toolConnections = sqliteTable("tool_connections", {
+  id: text("id").primaryKey(),
+  companyId: text("company_id").notNull(),
+  tool: text("tool").notNull(),
+  status: text("status").notNull().default("disconnected"),
+  config: text("config").notNull().default("{}"),
+  connectedAt: text("connected_at"),
+});
+
 export const reports = sqliteTable("reports", {
   id: text("id").primaryKey(),
   companyId: text("company_id").notNull(),

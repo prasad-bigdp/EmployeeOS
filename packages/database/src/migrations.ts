@@ -188,4 +188,32 @@ export function runMigrations(db: Database) {
       created_at TEXT NOT NULL
     )
   `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS execution_steps (
+      id TEXT PRIMARY KEY,
+      execution_id TEXT NOT NULL,
+      company_id TEXT NOT NULL,
+      tool TEXT NOT NULL,
+      operation TEXT NOT NULL,
+      input TEXT NOT NULL DEFAULT '{}',
+      expected_outcome TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      result TEXT,
+      error TEXT,
+      started_at TEXT,
+      completed_at TEXT
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS tool_connections (
+      id TEXT PRIMARY KEY,
+      company_id TEXT NOT NULL,
+      tool TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'disconnected',
+      config TEXT NOT NULL DEFAULT '{}',
+      connected_at TEXT
+    )
+  `);
 }

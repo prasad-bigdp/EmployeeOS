@@ -843,6 +843,14 @@ async function startLoop(config: AppConfig) {
     imapConfig: (config.imapHost && config.imapUser && config.imapPass)
       ? { host: config.imapHost, port: config.imapPort ?? 993, user: config.imapUser, pass: config.imapPass, tls: config.imapTls !== false }
       : undefined,
+    toolConfig: (config.githubToken || config.composioApiKey)
+      ? {
+          githubToken: config.githubToken,
+          githubOwner: config.githubOwner,
+          githubRepo: config.githubRepo,
+          composioApiKey: config.composioApiKey,
+        }
+      : undefined,
   });
 
   process.on("SIGINT", () => {
@@ -1440,6 +1448,177 @@ async function runEmailSetup(config: AppConfig) {
   console.log("");
 }
 
+// -- GitHub Setup ---------------------------------------------------------
+
+async function runGitHubSetup(config: AppConfig) {
+  banner();
+  section("Connect GitHub");
+
+  info("GitHub lets EmployeeOS create issues, comment on PRs, and track repo health.");
+  info("You need a Personal Access Token with repo permissions.");
+  info("Create one at: https://github.com/settings/tokens/new");
+  info("Scopes needed: repo (full), read:user");
+  console.log("");
+
+  if (config.githubToken) {
+    info("GitHub is already connected. Reconfigure?");
+    const { reconfigure } = await inquirer.prompt([{
+      type: "confirm", name: "reconfigure", message: "Reconfigure GitHub?", default: false
+    }]);
+    if (!reconfigure) return;
+  }
+
+  const answers = await inquirer.prompt([
+    {
+      type: "password", name: "token",
+      message: "GitHub Personal Access Token:",
+      validate: (v: string) => v.trim().length > 10 || "Token too short"
+    },
+    {
+      type: "input", name: "owner",
+      message: "Default GitHub owner (username or org):",
+      validate: (v: string) => v.trim().length > 0 || "Required"
+    },
+    {
+      type: "input", name: "repo",
+      message: "Default repository name (optional, press enter to skip):",
+      default: ""
+    },
+  ]);
+
+  const spinner = ora("  Verifying GitHub token...").start();
+  try {
+    const { testConnection } = await import("@employeeos/github");
+    const user = await testConnection({ token: answers.token as string });
+    spinner.succeed(`  Connected as @${user.login} (${user.name})`);
+
+    config.githubToken = answers.token as string;
+    config.githubOwner = (answers.owner as string).trim();
+    config.githubRepo = (answers.repo as string).trim() || undefined;
+    saveConfig(config);
+
+    const db = await openDB(config);
+    await db.upsertToolConnection(config.companyId, "github", "connected", {
+      owner: config.githubOwner,
+      repo: config.githubRepo ?? null,
+    });
+    db.close();
+
+    console.log("");
+    ok("GitHub connected! EmployeeOS can now:");
+    info("  - Create issues from anomaly observations");
+    info("  - Comment on PRs with execution summaries");
+    info("  - Open PRs as plan actions");
+    info("  - Track repo health as business signals");
+    console.log("");
+    info("Restart `employeeos start` to activate GitHub actions in the brain loop.");
+  } catch (err) {
+    spinner.fail("  GitHub connection failed: " + (err as Error).message);
+    process.exit(1);
+  }
+  console.log("");
+}
+
+// -- Composio Setup -------------------------------------------------------
+
+async function runComposioSetup(config: AppConfig, targetApp?: string) {
+  banner();
+  section("Connect Apps via Composio");
+
+  info("Composio gives EmployeeOS 250+ SaaS integrations: Slack, Gmail, Notion, HubSpot, Stripe...");
+  info("Get a free API key at: https://composio.dev");
+  console.log("");
+
+  if (!config.composioApiKey) {
+    const { apiKey } = await inquirer.prompt([{
+      type: "password", name: "apiKey",
+      message: "Composio API key:",
+      validate: (v: string) => v.trim().length > 10 || "Key too short"
+    }]);
+
+    const verifySpinner = ora("  Verifying Composio API key...").start();
+    try {
+      const { testApiKey } = await import("@employeeos/composio");
+      const result = await testApiKey(apiKey as string);
+      if (!result.valid) { verifySpinner.fail("  Invalid API key"); process.exit(1); }
+      verifySpinner.succeed("  Composio connected" + (result.email ? ` (${result.email})` : ""));
+
+      config.composioApiKey = (apiKey as string).trim();
+      saveConfig(config);
+    } catch (err) {
+      verifySpinner.fail("  Failed: " + (err as Error).message);
+      process.exit(1);
+    }
+    console.log("");
+  } else {
+    ok("Composio API key already configured.");
+    console.log("");
+  }
+
+  const { listConnections } = await import("@employeeos/composio");
+  const listSpinner = ora("  Loading connected apps...").start();
+  let connections: Array<{ appName: string; status: string }> = [];
+  try {
+    connections = await listConnections(config.composioApiKey!);
+    listSpinner.succeed(`  ${connections.length} app${connections.length !== 1 ? "s" : ""} connected`);
+  } catch {
+    listSpinner.warn("  Could not load connections (network issue)");
+  }
+
+  if (connections.length > 0) {
+    console.log("");
+    info("Currently connected apps:");
+    for (const c of connections) {
+      ok(`  ${c.appName} — ${c.status}`);
+    }
+    console.log("");
+  }
+
+  const appToConnect = targetApp ?? await (async () => {
+    const { app } = await inquirer.prompt([{
+      type: "list", name: "app",
+      message: "Which app do you want to connect?",
+      choices: [
+        { name: "Slack — send messages to channels", value: "slack" },
+        { name: "Gmail — send and read emails", value: "gmail" },
+        { name: "Notion — create pages and search", value: "notion" },
+        { name: "HubSpot — CRM: deals, contacts", value: "hubspot" },
+        { name: "Stripe — read balance, customers", value: "stripe" },
+        { name: "Done — exit", value: "done" },
+      ]
+    }]);
+    return app as string;
+  })();
+
+  if (appToConnect === "done") return;
+
+  const { initiateOAuthConnection } = await import("@employeeos/composio");
+  const oauthSpinner = ora(`  Initiating ${appToConnect} OAuth connection...`).start();
+  try {
+    const result = await initiateOAuthConnection(config.composioApiKey!, appToConnect);
+    oauthSpinner.succeed(`  ${appToConnect} OAuth URL generated`);
+    console.log("");
+    info(`Open this URL in your browser to authorize ${appToConnect}:`);
+    if (result.redirectUrl) {
+      console.log(chalk.cyan("  " + result.redirectUrl));
+    } else {
+      warn("  No redirect URL returned — check Composio dashboard");
+    }
+    console.log("");
+    info("After authorizing, return here and run `employeeos connect` again to verify.");
+
+    const db = await openDB(config);
+    const existing = await db.getToolConnection(config.companyId, "composio");
+    const apps: string[] = ((existing?.config as { apps?: string[] })?.apps ?? []);
+    if (!apps.includes(appToConnect)) apps.push(appToConnect);
+    await db.upsertToolConnection(config.companyId, "composio", "connected", { apps });
+    db.close();
+  } catch (err) {
+    oauthSpinner.fail("  Failed: " + (err as Error).message);
+  }
+  console.log("");
+}
+
 // -- Skills Command -------------------------------------------------------
 
 async function runSkillsCommand(opts: { list?: boolean; open?: boolean; installSamples?: boolean }) {
@@ -1641,6 +1820,24 @@ program
     const config = loadConfig();
     if (!config) { info("Run `employeeos init` first."); process.exit(1); }
     await runEmailSetup(config);
+  });
+
+program
+  .command("github")
+  .description("Connect GitHub for issue creation and PR management")
+  .action(async () => {
+    const config = loadConfig();
+    if (!config) { info("Run `employeeos init` first."); process.exit(1); }
+    await runGitHubSetup(config);
+  });
+
+program
+  .command("connect [app]")
+  .description("Connect SaaS apps via Composio (Slack, Gmail, Notion, HubSpot, Stripe...)")
+  .action(async (app?: string) => {
+    const config = loadConfig();
+    if (!config) { info("Run `employeeos init` first."); process.exit(1); }
+    await runComposioSetup(config, app);
   });
 
 program

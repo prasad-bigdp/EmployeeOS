@@ -6,6 +6,7 @@ import { executeApprovedPlans } from "@employeeos/executor";
 import { rankOpportunities, composePlan } from "@employeeos/planner";
 import { getOrGenerateBrief, generateWeeklyReview, computeHealthScore } from "@employeeos/reporter";
 import type { ImapConfig } from "@employeeos/email";
+import type { ToolConfig } from "@employeeos/executor";
 
 export interface BrainLoop {
   stop(): void;
@@ -148,7 +149,8 @@ export async function hourlyTick(
   onLog?: (msg: string) => void,
   onNotify?: (msg: string) => void,
   extraContext?: string,
-  imapConfig?: ImapConfig
+  imapConfig?: ImapConfig,
+  toolConfig?: ToolConfig
 ): Promise<BrainTickResult> {
   const log = onLog ?? (() => {});
   const notify = onNotify ?? (() => {});
@@ -251,7 +253,7 @@ ${messages.map((m, i) => `[${i + 1}] From: ${m.from}\nSubject: ${m.subject}\n${m
   await promotePatterns(db, ai, companyId);
 
   log("Executor: running approved plans...");
-  const executedPlans = await executeApprovedPlans(db, ai, companyId, onLog);
+  const executedPlans = await executeApprovedPlans(db, ai, companyId, onLog, toolConfig);
   if (executedPlans > 0) {
     notify(`${executedPlans} plan${executedPlans > 1 ? "s" : ""} executed — learnings recorded`);
   }
@@ -337,6 +339,7 @@ export interface BrainLoopOptions {
   onNotify?: (msg: string) => void;
   extraContext?: string;
   imapConfig?: ImapConfig;
+  toolConfig?: ToolConfig;
 }
 
 export function startBrainLoop(
@@ -364,9 +367,10 @@ export function startBrainLoop(
 
   const extraCtx = typeof onLogOrOptions === "object" ? onLogOrOptions.extraContext : undefined;
   const imapCfg = typeof onLogOrOptions === "object" ? onLogOrOptions.imapConfig : undefined;
+  const toolCfg = typeof onLogOrOptions === "object" ? onLogOrOptions.toolConfig : undefined;
 
   const hourlyTimer = setInterval(
-    () => hourlyTick(db, ai, companyId, onLog, notifyFn, extraCtx, imapCfg).catch(console.error),
+    () => hourlyTick(db, ai, companyId, onLog, notifyFn, extraCtx, imapCfg, toolCfg).catch(console.error),
     HOUR_MS
   );
   const dailyTimer = setInterval(

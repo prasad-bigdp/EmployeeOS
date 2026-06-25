@@ -38,6 +38,8 @@ export default defineConfig({
     // Email
     "nodemailer",
     "imapflow",
+    // GitHub
+    "@octokit/rest",
     // Browser automation
     "playwright-core",
     "chromium-bidi",

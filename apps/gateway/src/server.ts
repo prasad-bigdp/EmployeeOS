@@ -148,6 +148,35 @@ export async function startGateway(port = 3001): Promise<{
     };
   });
 
+  // ── Integration status ──────────────────────────────────────────────────────
+
+  server.get("/api/integrations", async (_, reply) => {
+    if (!db || !config) return reply.code(503).send({ error: "Not initialized" });
+    const connections = await db.listToolConnections(config.companyId);
+    const github = connections.find(c => c.tool === "github");
+    const composioConn = connections.find(c => c.tool === "composio");
+    return {
+      github: {
+        connected: Boolean(config.githubToken),
+        status: github?.status ?? (config.githubToken ? "connected" : "disconnected"),
+        owner: config.githubOwner ?? null,
+        repo: config.githubRepo ?? null,
+      },
+      composio: {
+        connected: Boolean(config.composioApiKey),
+        status: composioConn?.status ?? (config.composioApiKey ? "connected" : "disconnected"),
+        apps: composioConn ? ((composioConn.config as { apps?: string[] }).apps ?? []) : [],
+      },
+    };
+  });
+
+  // Execution step details
+  server.get("/api/executions/:executionId/steps", async (request, reply) => {
+    if (!db || !config) return reply.code(503).send({ error: "Not initialized" });
+    const { executionId } = request.params as { executionId: string };
+    return db.getExecutionSteps(executionId);
+  });
+
   const obsSchema = z.object({
     source: z.string().min(1),
     type: z.string().min(1),
@@ -216,8 +245,25 @@ export async function startGateway(port = 3001): Promise<{
     const id = await db.createObservation(config.companyId, "webhook", signalType, obsContent);
     await db.createEvent(config.companyId, "observation.created", { source: `webhook:${source}`, observationId: id });
 
+    // For critical webhook events (payment failures, churn signals), emit a high-priority event
+    // that the next hourly brain tick will turn into an action plan
+    const criticalSources = ["stripe", "shopify", "hubspot"];
+    const criticalKeywords = ["failed", "error", "churn", "cancel", "refund", "dispute"];
+    const isCritical =
+      criticalSources.includes(source.toLowerCase()) &&
+      criticalKeywords.some(kw => summary.toLowerCase().includes(kw));
+    if (isCritical) {
+      await db.createEvent(config.companyId, "observation.critical", {
+        source: `webhook:${source}`,
+        observationId: id,
+        signalType,
+        autoSuggestPlan: true,
+        summary: summary.slice(0, 200),
+      });
+    }
+
     reply.code(200);
-    return { received: true, observationId: id, source, signalType };
+    return { received: true, observationId: id, source, signalType, critical: isCritical };
   });
 
   // Force-generate a fresh brief and persist it
