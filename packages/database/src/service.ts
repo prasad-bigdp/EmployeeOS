@@ -584,6 +584,30 @@ export class DatabaseService {
     }));
   }
 
+  // ── Settings (key-value meta store) ────────────────────────────────────────
+
+  async getMeta(key: string): Promise<string | null> {
+    const rows = await this.db
+      .select()
+      .from(schema.settings)
+      .where(eq(schema.settings.key, key))
+      .limit(1);
+    return rows[0]?.value ?? null;
+  }
+
+  async setMeta(key: string, value: string): Promise<void> {
+    const existing = await this.getMeta(key);
+    if (existing !== null) {
+      await this.db
+        .update(schema.settings)
+        .set({ value })
+        .where(eq(schema.settings.key, key));
+    } else {
+      await this.db.insert(schema.settings).values({ key, value });
+    }
+    this.save();
+  }
+
   // ── Utility ────────────────────────────────────────────────────────────────
 
   close() {

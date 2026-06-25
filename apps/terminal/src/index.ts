@@ -819,6 +819,9 @@ async function startLoop(config: AppConfig) {
       emailNotify?.(msg);
     },
     extraContext: skillContext || undefined,
+    imapConfig: (config.imapHost && config.imapUser && config.imapPass)
+      ? { host: config.imapHost, port: config.imapPort ?? 993, user: config.imapUser, pass: config.imapPass, tls: config.imapTls !== false }
+      : undefined,
   });
 
   process.on("SIGINT", () => {
@@ -1054,9 +1057,93 @@ async function runImport(config: AppConfig, filePath?: string) {
     console.error(chalk.red("File not found: " + resolvedPath));
     process.exit(1);
   }
-  const content = fs.readFileSync(resolvedPath, "utf-8");
   const ext = path.extname(resolvedPath).toLowerCase();
 
+  // -- PDF import path -------------------------------------------------------
+  if (ext === ".pdf") {
+    const pdfSpinner = ora("  Reading PDF...").start();
+    let pdfText = "";
+    try {
+      const buffer = fs.readFileSync(resolvedPath);
+      const { default: pdfParse } = await import("pdf-parse");
+      const data = await pdfParse(buffer);
+      pdfText = data.text;
+      pdfSpinner.succeed(`  PDF read (${data.numpages} page${data.numpages !== 1 ? "s" : ""}, ${pdfText.length} chars)`);
+    } catch (err) {
+      pdfSpinner.fail("  PDF read failed: " + (err as Error).message);
+      process.exit(1);
+    }
+
+    const ai = await createProvider(config.aiProvider, { apiKey: config.aiApiKey, model: config.aiModel, baseURL: config.aiBaseURL });
+    const extractSpinner = ora("  Extracting business signals with AI...").start();
+
+    const prompt = `Extract business signals from this document. Write one line per signal:
+SIGNAL|category|one-sentence description
+Categories: revenue, marketing, sales, support, hr, finance, operations, strategy
+Only extract concrete, actionable business information. Skip boilerplate.
+
+Document (first 6000 chars):
+${pdfText.slice(0, 6000)}`;
+
+    const result = await ai.generate(prompt, {
+      system: "Extract only meaningful business signals. Be specific and concise.",
+      maxTokens: 800,
+    });
+
+    const signals: Array<{ category: string; description: string }> = [];
+    for (const line of result.split("\n")) {
+      if (!line.startsWith("SIGNAL|")) continue;
+      const [, category, description] = line.split("|");
+      if (category && description) signals.push({ category: category.trim(), description: description.trim() });
+    }
+
+    extractSpinner.succeed(`  Extracted ${signals.length} business signal${signals.length !== 1 ? "s" : ""}`);
+    console.log("");
+
+    if (signals.length === 0) { warn("No business signals found in PDF."); return; }
+
+    for (const s of signals.slice(0, 8)) {
+      console.log(chalk.gray(`  [${s.category}] ${s.description}`));
+    }
+    if (signals.length > 8) info(`  ... and ${signals.length - 8} more`);
+    console.log("");
+
+    const { confirmed } = await inquirer.prompt([{
+      type: "confirm",
+      name: "confirmed",
+      message: `Import ${signals.length} signals from PDF into the brain?`,
+      default: true
+    }]);
+    if (!confirmed) { info("Import cancelled."); return; }
+
+    const db = await openDB(config);
+    const saveSpinner = ora(`  Saving ${signals.length} signals...`).start();
+    const cats: Record<string, number> = {};
+    const date = new Date().toISOString().slice(0, 10);
+    const fileName = path.basename(resolvedPath);
+    for (const s of signals) {
+      const obsId = await db.createObservation(config.companyId, "pdf_import", s.category, `${date}: ${s.description}`);
+      await db.createEvent(config.companyId, "observation.created", {
+        source: "pdf_import",
+        observationId: obsId,
+        summary: s.description,
+        category: s.category,
+        file: fileName,
+      });
+      cats[s.category] = (cats[s.category] ?? 0) + 1;
+    }
+    db.close();
+    saveSpinner.succeed(`  Imported ${signals.length} signals`);
+    console.log("");
+    for (const [cat, count] of Object.entries(cats)) ok(`${count} ${cat} signal${count > 1 ? "s" : ""}`);
+    console.log("");
+    info("Run `employeeos brief` to see these signals reflected in your morning report.");
+    console.log("");
+    return;
+  }
+
+  // -- CSV / JSON import path ------------------------------------------------
+  const content = fs.readFileSync(resolvedPath, "utf-8");
   let rows: CSVRow[] = [];
 
   if (ext === ".json") {
@@ -1068,7 +1155,14 @@ async function runImport(config: AppConfig, filePath?: string) {
       process.exit(1);
     }
   } else {
-    rows = parseCSV(content);
+    // Use papaparse for robust CSV handling (quoted fields, varied delimiters)
+    const { default: Papa } = await import("papaparse");
+    const parsed = Papa.parse<CSVRow>(content, { header: true, skipEmptyLines: true, dynamicTyping: false });
+    rows = parsed.data.map(r => {
+      const lower: CSVRow = {};
+      for (const [k, v] of Object.entries(r)) lower[k.toLowerCase() as keyof CSVRow] = v as string;
+      return lower;
+    });
   }
 
   if (rows.length === 0) {
@@ -1112,8 +1206,8 @@ async function runImport(config: AppConfig, filePath?: string) {
     const date = r.date ?? new Date().toISOString().slice(0, 10);
     const brand = r.brand ? " [" + r.brand + "]" : "";
     const notes = r.notes ? " - " + r.notes : "";
-    const content = date + brand + ": " + r.metric + " = " + r.value + " " + (r.unit ?? "count") + notes;
-    await db.createObservation(config.companyId, "csv_import", r.category ?? "general", content);
+    const obsContent = date + brand + ": " + r.metric + " = " + r.value + " " + (r.unit ?? "count") + notes;
+    await db.createObservation(config.companyId, "csv_import", r.category ?? "general", obsContent);
     categories[r.category ?? "general"] = (categories[r.category ?? "general"] ?? 0) + 1;
   }
 
@@ -1233,7 +1327,7 @@ async function runEmailSetup(config: AppConfig) {
     process.exit(1);
   }
 
-  // Save config
+  // Save SMTP config
   config.emailTo = answers.emailTo as string;
   config.emailSmtp = smtp;
   config.emailUser = credentials.emailUser as string;
@@ -1246,6 +1340,80 @@ async function runEmailSetup(config: AppConfig) {
   info("  - Anomaly alerts");
   info("  - Plan approval requests");
   info("  - Weekly executive reviews");
+  console.log("");
+
+  // Offer IMAP inbox reading
+  const { enableImap } = await inquirer.prompt([{
+    type: "confirm",
+    name: "enableImap",
+    message: "Also read your inbox to auto-detect business signals? (IMAP)",
+    default: true
+  }]);
+
+  if (enableImap) {
+    console.log("");
+    info("IMAP lets EmployeeOS read incoming emails and surface business signals.");
+    info("Gmail: use imap.gmail.com:993 with the same App Password.");
+    console.log("");
+
+    const imapAnswers = await inquirer.prompt([
+      {
+        type: "input",
+        name: "imapHost",
+        message: "IMAP host:",
+        default: answers.smtpPreset === "gmail" ? "imap.gmail.com"
+               : answers.smtpPreset === "outlook" ? "outlook.office365.com"
+               : "",
+        validate: (v: string) => v.trim().length > 0 || "Required"
+      },
+      {
+        type: "input",
+        name: "imapPort",
+        message: "IMAP port:",
+        default: "993",
+        validate: (v: string) => !isNaN(parseInt(v)) || "Must be a number"
+      },
+      {
+        type: "input",
+        name: "imapUser",
+        message: "IMAP login (usually your email):",
+        default: credentials.emailUser as string,
+        validate: (v: string) => v.trim().length > 0 || "Required"
+      },
+      {
+        type: "password",
+        name: "imapPass",
+        message: "IMAP password (same App Password for Gmail):",
+        validate: (v: string) => v.trim().length > 4 || "Too short"
+      }
+    ]);
+
+    const imapSpinner = ora("  Testing IMAP connection...").start();
+    try {
+      const { testImapConnection } = await import("@employeeos/email");
+      await testImapConnection({
+        host: imapAnswers.imapHost as string,
+        port: parseInt(imapAnswers.imapPort as string),
+        user: imapAnswers.imapUser as string,
+        pass: imapAnswers.imapPass as string,
+        tls: true,
+      });
+      imapSpinner.succeed("  IMAP connected");
+
+      config.imapHost = imapAnswers.imapHost as string;
+      config.imapPort = parseInt(imapAnswers.imapPort as string);
+      config.imapUser = imapAnswers.imapUser as string;
+      config.imapPass = imapAnswers.imapPass as string;
+      config.imapTls = true;
+      saveConfig(config);
+
+      ok("Inbox reading enabled — brain will scan emails every hour");
+    } catch (err) {
+      imapSpinner.fail("  IMAP failed: " + (err as Error).message);
+      warn("Continuing without inbox reading. Run `employeeos email` to retry.");
+    }
+  }
+
   console.log("");
   info("Restart `employeeos start` to activate email notifications.");
   console.log("");

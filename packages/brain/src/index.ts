@@ -5,6 +5,7 @@ import { promotePatterns } from "@employeeos/learner";
 import { executeApprovedPlans } from "@employeeos/executor";
 import { rankOpportunities, composePlan } from "@employeeos/planner";
 import { getOrGenerateBrief, generateWeeklyReview, computeHealthScore } from "@employeeos/reporter";
+import type { ImapConfig } from "@employeeos/email";
 
 export interface BrainLoop {
   stop(): void;
@@ -146,10 +147,78 @@ export async function hourlyTick(
   companyId: string,
   onLog?: (msg: string) => void,
   onNotify?: (msg: string) => void,
-  extraContext?: string
+  extraContext?: string,
+  imapConfig?: ImapConfig
 ): Promise<BrainTickResult> {
   const log = onLog ?? (() => {});
   const notify = onNotify ?? (() => {});
+
+  // Pull inbox emails as observations before analyzing signals
+  if (imapConfig) {
+    try {
+      log("Email: reading inbox for business signals...");
+      const { readInboxMessages } = await import("@employeeos/email");
+
+      // Deduplication: only fetch emails newer than the last successful tick
+      const checkpointKey = `imap_checkpoint:${companyId}`;
+      const lastSeen = await db.getMeta(checkpointKey);
+      const since = lastSeen
+        ? new Date(lastSeen)
+        : new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+      const messages = await readInboxMessages(imapConfig, since, 30);
+      if (messages.length > 0) {
+        const prompt = `You are a business signal extractor. Given these emails, classify each as a business signal.
+For each email write one line: SIGNAL|index|category|one-sentence summary
+index = the number in brackets before the email (e.g. 1, 2, 3)
+Categories: sales, support, hr, finance, operations, marketing, other
+Skip newsletters, automated alerts, and spam — only include genuine human communication.
+
+Emails:
+${messages.map((m, i) => `[${i}] From: ${m.from}\nSubject: ${m.subject}\n${m.text.slice(0, 300)}`).join("\n---\n")}`;
+
+        const result = await ai.generate(prompt, {
+          system: "Extract only meaningful business signals. Be terse.",
+          maxTokens: 600,
+        });
+
+        let imported = 0;
+        for (const line of result.split("\n")) {
+          if (!line.startsWith("SIGNAL|")) continue;
+          const parts = line.split("|");
+          const idx = parseInt(parts[1] ?? "");
+          const category = parts[2]?.trim();
+          const summary = parts[3]?.trim();
+          if (!category || !summary) continue;
+
+          const email = isNaN(idx) ? undefined : messages[idx];
+          const obsId = await db.createObservation(
+            companyId, "email_inbox", category,
+            `${new Date().toISOString().slice(0, 10)}: ${summary}`
+          );
+          await db.createEvent(companyId, "observation.created", {
+            source: "email_inbox",
+            observationId: obsId,
+            summary,
+            subject: email?.subject ?? "",
+            from: email?.from ?? "",
+            messageId: email?.messageId ?? "",
+          });
+          imported++;
+        }
+        if (imported > 0) {
+          log(`Email: ${imported} signal${imported > 1 ? "s" : ""} imported from ${messages.length} emails`);
+        }
+      } else {
+        log("Email: no new messages since last tick");
+      }
+
+      // Advance checkpoint so next tick only fetches newer messages
+      await db.setMeta(checkpointKey, new Date().toISOString());
+    } catch (err) {
+      log(`Email: inbox read failed — ${(err as Error).message}`);
+    }
+  }
 
   log("Observer: scanning for signals...");
   const anomalies = await detectAnomalies(db, ai, companyId);
@@ -252,6 +321,7 @@ export interface BrainLoopOptions {
   onLog?: (msg: string) => void;
   onNotify?: (msg: string) => void;
   extraContext?: string;
+  imapConfig?: ImapConfig;
 }
 
 export function startBrainLoop(
@@ -278,9 +348,10 @@ export function startBrainLoop(
   const WEEK_MS = 7 * DAY_MS;
 
   const extraCtx = typeof onLogOrOptions === "object" ? onLogOrOptions.extraContext : undefined;
+  const imapCfg = typeof onLogOrOptions === "object" ? onLogOrOptions.imapConfig : undefined;
 
   const hourlyTimer = setInterval(
-    () => hourlyTick(db, ai, companyId, onLog, notifyFn, extraCtx).catch(console.error),
+    () => hourlyTick(db, ai, companyId, onLog, notifyFn, extraCtx, imapCfg).catch(console.error),
     HOUR_MS
   );
   const dailyTimer = setInterval(
