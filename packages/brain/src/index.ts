@@ -159,23 +159,32 @@ export async function hourlyTick(
       log("Email: reading inbox for business signals...");
       const { readInboxMessages } = await import("@employeeos/email");
 
-      // Deduplication: only fetch emails newer than the last successful tick
+      // Layer 1 — timestamp pre-filter: only ask IMAP for messages since last tick
       const checkpointKey = `imap_checkpoint:${companyId}`;
       const lastSeen = await db.getMeta(checkpointKey);
       const since = lastSeen
         ? new Date(lastSeen)
         : new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-      const messages = await readInboxMessages(imapConfig, since, 30);
+      // Layer 2 — identity dedup: skip any message whose ID we have already processed
+      // Stored as a JSON array of messageIds (capped at 500 most recent)
+      const seenKey = `imap_seen_ids:${companyId}`;
+      const seenRaw = await db.getMeta(seenKey);
+      const seenIds = new Set<string>(seenRaw ? (JSON.parse(seenRaw) as string[]) : []);
+
+      const allMessages = await readInboxMessages(imapConfig, since, 50);
+      const messages = allMessages.filter(m => !seenIds.has(m.messageId));
+
       if (messages.length > 0) {
+        // Emails are shown as [1], [2], [3] — natural 1-based so the model matches easily
         const prompt = `You are a business signal extractor. Given these emails, classify each as a business signal.
 For each email write one line: SIGNAL|index|category|one-sentence summary
-index = the number in brackets before the email (e.g. 1, 2, 3)
+index = the number in brackets before the email (1, 2, 3, ...)
 Categories: sales, support, hr, finance, operations, marketing, other
 Skip newsletters, automated alerts, and spam — only include genuine human communication.
 
 Emails:
-${messages.map((m, i) => `[${i}] From: ${m.from}\nSubject: ${m.subject}\n${m.text.slice(0, 300)}`).join("\n---\n")}`;
+${messages.map((m, i) => `[${i + 1}] From: ${m.from}\nSubject: ${m.subject}\n${m.text.slice(0, 300)}`).join("\n---\n")}`;
 
         const result = await ai.generate(prompt, {
           system: "Extract only meaningful business signals. Be terse.",
@@ -186,12 +195,13 @@ ${messages.map((m, i) => `[${i}] From: ${m.from}\nSubject: ${m.subject}\n${m.tex
         for (const line of result.split("\n")) {
           if (!line.startsWith("SIGNAL|")) continue;
           const parts = line.split("|");
-          const idx = parseInt(parts[1] ?? "");
+          // Model returns 1-based index; subtract 1 to get array position
+          const idx = parseInt(parts[1] ?? "") - 1;
           const category = parts[2]?.trim();
           const summary = parts[3]?.trim();
           if (!category || !summary) continue;
 
-          const email = isNaN(idx) ? undefined : messages[idx];
+          const email = idx >= 0 && idx < messages.length ? messages[idx] : undefined;
           const obsId = await db.createObservation(
             companyId, "email_inbox", category,
             `${new Date().toISOString().slice(0, 10)}: ${summary}`
@@ -207,14 +217,19 @@ ${messages.map((m, i) => `[${i}] From: ${m.from}\nSubject: ${m.subject}\n${m.tex
           imported++;
         }
         if (imported > 0) {
-          log(`Email: ${imported} signal${imported > 1 ? "s" : ""} imported from ${messages.length} emails`);
+          log(`Email: ${imported} signal${imported > 1 ? "s" : ""} imported from ${messages.length} new emails`);
         }
       } else {
         log("Email: no new messages since last tick");
       }
 
-      // Advance checkpoint so next tick only fetches newer messages
+      // Advance timestamp checkpoint
       await db.setMeta(checkpointKey, new Date().toISOString());
+
+      // Advance identity checkpoint — store all seen messageIds (keep last 500)
+      for (const m of allMessages) seenIds.add(m.messageId);
+      const trimmedIds = Array.from(seenIds).slice(-500);
+      await db.setMeta(seenKey, JSON.stringify(trimmedIds));
     } catch (err) {
       log(`Email: inbox read failed — ${(err as Error).message}`);
     }

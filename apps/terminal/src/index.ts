@@ -56,10 +56,31 @@ async function openDB(config: AppConfig): Promise<DatabaseService> {
 
 // -- UI Helpers -----------------------------------------------------------
 
+function mascot(): string {
+  const b = chalk.blue.bold;
+  const w = chalk.bold.white;
+  const t = chalk.cyan.bold;   // tie
+  const f = chalk.white;       // face
+
+  return [
+    f("        .──────."),
+    f("       ( ◉    ◉ )"),
+    f("       (   ────  )"),
+    f("        `──────'"),
+    b("        /╲    /╲"),
+    b("       /  ╲  /  \\"),
+    b("      / ╔══╧══╗ \\"),
+    b("        ║  ") + t("▲") + b("  ║"),
+    b("        ║  ") + t("│") + b("  ║"),
+    b("        ╚═════╝"),
+    "",
+    "  " + w("EmployeeOS") + chalk.gray("  ·  The Open Source Company Brain"),
+  ].join("\n");
+}
+
 function banner() {
   console.log("");
-  console.log(chalk.bold.white("  EmployeeOS"));
-  console.log(chalk.gray("  The Open Source Company Brain"));
+  console.log(mascot());
   console.log("");
 }
 
