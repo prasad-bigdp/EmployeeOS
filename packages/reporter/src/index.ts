@@ -151,6 +151,26 @@ Be sharp and specific. No generic platitudes.`;
   return { title, body, score };
 }
 
+export async function getOrGenerateBrief(
+  db: DatabaseService,
+  ai: AIProvider,
+  companyId: string,
+  forceRefresh = false
+): Promise<{ title: string; body: string; score: number; createdAt: string }> {
+  if (!forceRefresh) {
+    const existing = await db.getTodayReport(companyId, "morning_brief");
+    if (existing) {
+      return { title: existing.title, body: existing.body, score: existing.score ?? 55, createdAt: existing.createdAt };
+    }
+  } else {
+    await db.deleteTodayReport(companyId, "morning_brief");
+  }
+  const brief = await generateMorningBrief(db, ai, companyId);
+  await db.createReport(companyId, brief.title, brief.body, "morning_brief", brief.score);
+  await db.createEvent(companyId, "report.generated", { title: brief.title, kind: "morning_brief" });
+  return { ...brief, createdAt: new Date().toISOString() };
+}
+
 export async function generateWeeklyReview(
   db: DatabaseService,
   ai: AIProvider,
@@ -192,6 +212,7 @@ Be executive-level sharp. No fluff.`;
 
   const title = `Weekly Review — Week of ${new Date().toLocaleDateString()}`;
   await db.createReport(companyId, title, body, "weekly_review", latestScore?.score);
+  await db.createEvent(companyId, "report.generated", { title, kind: "weekly_review" });
 
   return body;
 }

@@ -118,6 +118,18 @@ export const documentChunks = sqliteTable("document_chunks", {
   content: text("content").notNull()
 });
 
+export const executions = sqliteTable("executions", {
+  id: text("id").primaryKey(),
+  companyId: text("company_id").notNull(),
+  planId: text("plan_id").notNull(),
+  status: text("status").notNull().default("running"),
+  outcome: text("outcome"),
+  error: text("error"),
+  learningId: text("learning_id"),
+  startedAt: text("started_at").notNull(),
+  completedAt: text("completed_at")
+});
+
 export const events = sqliteTable("events", {
   id: text("id").primaryKey(),
   companyId: text("company_id").notNull(),

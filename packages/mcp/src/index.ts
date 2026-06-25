@@ -6,7 +6,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { DatabaseService } from "@employeeos/database";
 import { createProvider } from "@employeeos/ai";
-import { answerQuestion, generateMorningBrief } from "@employeeos/reporter";
+import { answerQuestion, getOrGenerateBrief } from "@employeeos/reporter";
 import type { AppConfig } from "@employeeos/shared";
 
 const CONFIG_FILE = path.join(os.homedir(), ".employeeos", "config.json");
@@ -65,15 +65,8 @@ server.tool(
   async () => {
     const { db, ai, config } = await openResources();
     try {
-      let text: string;
-      const cached = await db.getLatestReport(config.companyId);
-      if (cached && new Date(cached.createdAt).toDateString() === new Date().toDateString()) {
-        text = cached.body;
-      } else {
-        const report = await generateMorningBrief(db, ai, config.companyId);
-        await db.createReport(config.companyId, report.title, report.body, "morning_brief", report.score);
-        text = report.body;
-      }
+      const report = await getOrGenerateBrief(db, ai, config.companyId);
+      const text = report.body;
       return { content: [{ type: "text" as const, text }] };
     } finally {
       db.close();

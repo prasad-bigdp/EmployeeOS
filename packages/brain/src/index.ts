@@ -4,7 +4,7 @@ import { detectAnomalies, synthesizeObservations } from "@employeeos/observer";
 import { promotePatterns } from "@employeeos/learner";
 import { executeApprovedPlans } from "@employeeos/executor";
 import { rankOpportunities, composePlan } from "@employeeos/planner";
-import { generateMorningBrief, generateWeeklyReview, computeHealthScore } from "@employeeos/reporter";
+import { getOrGenerateBrief, generateWeeklyReview, computeHealthScore } from "@employeeos/reporter";
 
 export interface BrainLoop {
   stop(): void;
@@ -219,16 +219,8 @@ export async function dailyTick(
   const notify = onNotify ?? (() => {});
 
   log("Reporter: generating morning brief...");
-  let briefScore: number | undefined;
-  const existingBrief = await db.getTodayReport(companyId, "morning_brief");
-  if (!existingBrief) {
-    const brief = await generateMorningBrief(db, ai, companyId);
-    briefScore = brief.score;
-    await db.createReport(companyId, brief.title ?? "Morning Brief", brief.body, "morning_brief", briefScore);
-  } else {
-    briefScore = existingBrief.score ?? undefined;
-    log("Reporter: brief already generated today, skipping.");
-  }
+  const brief = await getOrGenerateBrief(db, ai, companyId);
+  const briefScore = brief.score;
 
   log("Scoring: computing health score...");
   await computeHealthScore(db, ai, companyId);

@@ -525,6 +525,38 @@ export class DatabaseService {
       .limit(limit);
   }
 
+  // ── Executions ─────────────────────────────────────────────────────────────
+
+  async createExecution(companyId: string, planId: string) {
+    const id = uid();
+    await this.db.insert(schema.executions).values({
+      id, companyId, planId,
+      status: "running",
+      startedAt: new Date().toISOString()
+    });
+    this.save();
+    return id;
+  }
+
+  async updateExecution(executionId: string, fields: {
+    status: string;
+    outcome?: string;
+    error?: string;
+    learningId?: string;
+    completedAt?: string;
+  }) {
+    await this.db.update(schema.executions)
+      .set({
+        status: fields.status,
+        outcome: fields.outcome ?? null,
+        error: fields.error ?? null,
+        learningId: fields.learningId ?? null,
+        completedAt: fields.completedAt ?? null,
+      })
+      .where(eq(schema.executions.id, executionId));
+    this.save();
+  }
+
   // ── Events ─────────────────────────────────────────────────────────────────
 
   async createEvent(companyId: string, type: string, payload: Record<string, unknown>) {
@@ -538,6 +570,18 @@ export class DatabaseService {
     });
     this.save();
     return id;
+  }
+
+  async getEvents(companyId: string, limit = 50) {
+    const rows = await this.db
+      .select()
+      .from(schema.events)
+      .where(eq(schema.events.companyId, companyId))
+      .orderBy(desc(schema.events.occurredAt));
+    return rows.slice(0, limit).map(e => ({
+      ...e,
+      payload: JSON.parse(e.payload) as Record<string, unknown>
+    }));
   }
 
   // ── Utility ────────────────────────────────────────────────────────────────

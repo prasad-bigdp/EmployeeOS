@@ -69,6 +69,7 @@ function PlanCard({ plan }: { plan: PlanRow }) {
     approved: "badge-green",
     done: "badge-gray",
     rejected: "badge-red",
+    failed: "badge-red",
   };
 
   return (

@@ -19,6 +19,8 @@ export async function executeApprovedPlans(
 
   for (const plan of approved) {
     log(`Executor: running "${plan.title}" [${plan.employeeRole}]...`);
+    const executionId = await db.createExecution(companyId, plan.id);
+
     try {
       const actions = JSON.parse(plan.actions || "[]") as string[];
 
@@ -39,26 +41,48 @@ Write a brief execution report (3-5 sentences):
         maxTokens: 400,
       });
 
-      await db.updatePlanStatus(plan.id, "done");
-      await db.createEvent(companyId, "plan.executed", {
-        planId: plan.id,
-        title: plan.title,
-        role: plan.employeeRole,
-        outcome,
-      });
-
-      // Feed result into the learning engine so future ticks benefit
-      await extractLearning(db, ai, companyId, {
+      const learningId = await extractLearning(db, ai, companyId, {
         action: plan.title,
         expected: actions.join("; "),
         actual: outcome,
         context: `Executed by ${plan.employeeRole}`,
       });
 
+      const now = new Date().toISOString();
+      await db.updateExecution(executionId, {
+        status: "done",
+        outcome,
+        learningId: learningId ?? undefined,
+        completedAt: now,
+      });
+
+      await db.updatePlanStatus(plan.id, "done");
+      await db.createEvent(companyId, "plan.executed", {
+        planId: plan.id,
+        title: plan.title,
+        role: plan.employeeRole,
+        executionId,
+        outcome,
+      });
+
       executed++;
-      log(`Executor: "${plan.title}" done — learning extracted`);
+      log(`Executor: "${plan.title}" done`);
     } catch (err) {
-      log(`Executor: "${plan.title}" failed — ${(err as Error).message}`);
+      const error = (err as Error).message;
+      log(`Executor: "${plan.title}" failed — ${error}`);
+
+      await db.updateExecution(executionId, {
+        status: "failed",
+        error,
+        completedAt: new Date().toISOString(),
+      });
+      await db.updatePlanStatus(plan.id, "failed");
+      await db.createEvent(companyId, "plan.failed", {
+        planId: plan.id,
+        title: plan.title,
+        executionId,
+        error,
+      });
     }
   }
 

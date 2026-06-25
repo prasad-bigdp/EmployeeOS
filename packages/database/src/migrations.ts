@@ -154,6 +154,20 @@ export function runMigrations(db: Database) {
   `);
 
   db.run(`
+    CREATE TABLE IF NOT EXISTS executions (
+      id TEXT PRIMARY KEY,
+      company_id TEXT NOT NULL,
+      plan_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'running',
+      outcome TEXT,
+      error TEXT,
+      learning_id TEXT,
+      started_at TEXT NOT NULL,
+      completed_at TEXT
+    )
+  `);
+
+  db.run(`
     CREATE TABLE IF NOT EXISTS events (
       id TEXT PRIMARY KEY,
       company_id TEXT NOT NULL,

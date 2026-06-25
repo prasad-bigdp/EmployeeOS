@@ -7,7 +7,7 @@ import inquirer from "inquirer";
 import ora from "ora";
 import { DatabaseService } from "@employeeos/database";
 import { createProvider } from "@employeeos/ai";
-import { generateFirstReport, generateMorningBrief, answerQuestion } from "@employeeos/reporter";
+import { generateFirstReport, getOrGenerateBrief, answerQuestion } from "@employeeos/reporter";
 import { startBrainLoop } from "@employeeos/brain";
 import type {
   AppConfig,
@@ -505,13 +505,9 @@ async function runOnboarding() {
 
   try {
     firstReport = await generateFirstReport(db, ai, companyId);
-    await db.createReport(
-      companyId,
-      "First Intelligence Brief - " + step1.companyName,
-      firstReport.body,
-      "first_brief",
-      firstReport.score
-    );
+    const firstReportTitle = "First Intelligence Brief - " + step1.companyName;
+    await db.createReport(companyId, firstReportTitle, firstReport.body, "first_brief", firstReport.score);
+    await db.createEvent(companyId, "report.generated", { title: firstReportTitle, kind: "first_brief" });
     await db.createHealthScore(companyId, firstReport.score, {});
     insightsSpinner.succeed("  First intelligence report generated");
   } catch {
@@ -612,13 +608,7 @@ async function showBrief(config: AppConfig) {
   const spinner = ora("  Generating morning brief...").start();
 
   try {
-    // Reuse today's saved brief if it exists; otherwise generate and save one
-    let report = await db.getTodayReport(config.companyId, "morning_brief");
-    if (!report) {
-      const generated = await generateMorningBrief(db, ai, config.companyId);
-      const id = await db.createReport(config.companyId, generated.title, generated.body, "morning_brief", generated.score);
-      report = await db.getLatestReport(config.companyId, "morning_brief") ?? { ...generated, id, createdAt: new Date().toISOString(), kind: "morning_brief", companyId: config.companyId };
-    }
+    const report = await getOrGenerateBrief(db, ai, config.companyId);
     spinner.succeed("  Morning brief ready");
     banner();
     divider();

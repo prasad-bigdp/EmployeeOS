@@ -13,7 +13,7 @@ export async function extractLearning(
   ai: AIProvider,
   companyId: string,
   outcome: ActionOutcome
-): Promise<string | null> {
+): Promise<string | null> {  // returns learningId or null
   const prompt = `Analyze this business outcome and extract a learning:
 
 Action: ${outcome.action}
@@ -46,10 +46,10 @@ Confidence: <0.0-1.0>`;
   const pattern = patternMatch[1]!.trim();
   const confidence = parseFloat(confidenceMatch?.[1] ?? "0.6");
 
-  await db.createLearning(companyId, subject, pattern, confidence);
-  await db.createEvent(companyId, "learning.created", { subject, pattern });
+  const learningId = await db.createLearning(companyId, subject, pattern, confidence);
+  await db.createEvent(companyId, "learning.created", { learningId, subject, pattern });
 
-  return pattern;
+  return learningId;
 }
 
 export async function promotePatterns(

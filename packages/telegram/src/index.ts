@@ -1,7 +1,7 @@
 import { Bot, InlineKeyboard } from "grammy";
 import type { DatabaseService } from "@employeeos/database";
 import type { AIProvider } from "@employeeos/ai";
-import { answerQuestion, generateMorningBrief } from "@employeeos/reporter";
+import { answerQuestion, getOrGenerateBrief } from "@employeeos/reporter";
 
 // -- Notifier (used by brain loop) -------------------------------------------
 
@@ -114,17 +114,9 @@ export function createBot(
   bot.command("brief", async (ctx) => {
     const msg = await ctx.reply("Generating brief...");
     try {
-      const report = await db.getLatestReport(companyId, "morning_brief");
-      if (report) {
-        // Truncate for Telegram's 4096 char limit
-        const text = report.body.slice(0, 3800);
-        await ctx.api.editMessageText(ctx.chat.id, msg.message_id, `*${report.title}*\n\n${text}`, { parse_mode: "Markdown" });
-      } else {
-        const result = await generateMorningBrief(db, ai, companyId);
-        await db.createReport(companyId, result.title ?? "Morning Brief", result.body, "morning_brief", result.score);
-        const text = result.body.slice(0, 3800);
-        await ctx.api.editMessageText(ctx.chat.id, msg.message_id, `*Morning Brief*\n\n${text}`, { parse_mode: "Markdown" });
-      }
+      const report = await getOrGenerateBrief(db, ai, companyId);
+      const text = report.body.slice(0, 3800);
+      await ctx.api.editMessageText(ctx.chat.id, msg.message_id, `*${report.title}*\n\n${text}`, { parse_mode: "Markdown" });
     } catch (e: unknown) {
       await ctx.api.editMessageText(ctx.chat.id, msg.message_id, `Error: ${(e as Error).message}`);
     }
@@ -199,9 +191,10 @@ export function createBot(
 
   // Inline button handlers for plan approval
   bot.callbackQuery(/^approve:(.+)$/, async (ctx) => {
-    const planId = ctx.match[1];
+    const planId = ctx.match[1]!;
     try {
       await db.updatePlanStatus(planId, "approved");
+      await db.createEvent(companyId, "plan.approved", { planId, source: "telegram" });
       await ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() });
       await ctx.answerCallbackQuery({ text: "Plan approved!" });
       await ctx.reply(`Plan approved. EmployeeOS will execute it on the next cycle.`);
@@ -211,9 +204,10 @@ export function createBot(
   });
 
   bot.callbackQuery(/^reject:(.+)$/, async (ctx) => {
-    const planId = ctx.match[1];
+    const planId = ctx.match[1]!;
     try {
       await db.updatePlanStatus(planId, "rejected");
+      await db.createEvent(companyId, "plan.rejected", { planId, source: "telegram" });
       await ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() });
       await ctx.answerCallbackQuery({ text: "Plan rejected." });
     } catch {

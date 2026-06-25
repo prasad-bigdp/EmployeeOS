@@ -9,7 +9,7 @@ import os from "node:os";
 import fs from "node:fs";
 import { DatabaseService } from "@employeeos/database";
 import { createProvider } from "@employeeos/ai";
-import { generateMorningBrief, answerQuestion } from "@employeeos/reporter";
+import { getOrGenerateBrief, answerQuestion } from "@employeeos/reporter";
 import { processSignal } from "@employeeos/observer";
 import type { AppConfig } from "@employeeos/shared";
 
@@ -137,23 +137,14 @@ export async function startGateway(port = 3001): Promise<{
 
   server.get("/api/events", async (_, reply) => {
     if (!db || !config) return reply.code(503).send({ error: "Not initialized" });
-    const plans = await db.getPendingPlans(config.companyId);
-    const learnings = await db.getRecentLearnings(config.companyId, 5);
-    const reports = await db.getRecentReports(config.companyId, 3);
-
-    const planEventType = (status: string) => {
-      if (status === "approved") return "plan.approved";
-      if (status === "rejected") return "plan.rejected";
-      if (status === "done") return "plan.executed";
-      return "plan.created";
-    };
-
+    const events = await db.getEvents(config.companyId, 50);
     return {
-      items: [
-        ...plans.map(p => ({ type: planEventType(p.status), detail: p.title, status: p.status, createdAt: p.createdAt })),
-        ...learnings.map(l => ({ type: "learning.created", detail: l.pattern, subject: l.subject, createdAt: l.lastSeen })),
-        ...reports.map(r => ({ type: "report.generated", detail: r.title, createdAt: r.createdAt })),
-      ].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      items: events.map(e => ({
+        type: e.type,
+        detail: (e.payload.title ?? e.payload.subject ?? e.type) as string,
+        payload: e.payload,
+        createdAt: e.occurredAt,
+      }))
     };
   });
 
@@ -198,11 +189,8 @@ export async function startGateway(port = 3001): Promise<{
       model: config.aiModel,
       baseURL: config.aiBaseURL,
     });
-    const result = await generateMorningBrief(db, ai, config.companyId);
-    await db.deleteTodayReport(config.companyId, "morning_brief");
-    await db.createReport(config.companyId, result.title, result.body, "morning_brief", result.score);
-    const saved = await db.getLatestReport(config.companyId, "morning_brief");
-    return saved ? { title: saved.title, body: saved.body, createdAt: saved.createdAt } : null;
+    const result = await getOrGenerateBrief(db, ai, config.companyId, true);
+    return { title: result.title, body: result.body, createdAt: result.createdAt };
   });
 
   // -------------------------------------------------------------------------
