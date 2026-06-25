@@ -211,18 +211,21 @@ export async function dailyTick(
   const notify = onNotify ?? (() => {});
 
   log("Reporter: generating morning brief...");
+  let briefScore: number | undefined;
   const existingBrief = await db.getTodayReport(companyId, "morning_brief");
   if (!existingBrief) {
     const brief = await generateMorningBrief(db, ai, companyId);
-    await db.createReport(companyId, brief.title ?? "Morning Brief", brief.body, "morning_brief", brief.score);
+    briefScore = brief.score;
+    await db.createReport(companyId, brief.title ?? "Morning Brief", brief.body, "morning_brief", briefScore);
   } else {
+    briefScore = existingBrief.score ?? undefined;
     log("Reporter: brief already generated today, skipping.");
   }
 
   log("Scoring: computing health score...");
   await computeHealthScore(db, ai, companyId);
 
-  notify(`Morning Brief ready. Health score: ${brief.score ?? "—"}/100`);
+  notify(`Morning Brief ready. Health score: ${briefScore ?? "—"}/100`);
   log("Daily tick complete.");
 }
 
