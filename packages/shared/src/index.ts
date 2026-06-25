@@ -165,6 +165,11 @@ export interface AppConfig {
   emailSmtp?: string;
   emailUser?: string;
   emailPass?: string;
+  imapHost?: string;
+  imapPort?: number;
+  imapUser?: string;
+  imapPass?: string;
+  imapTls?: boolean;
 }
 
 export const GOAL_LABELS: Record<GoalKind, string> = {

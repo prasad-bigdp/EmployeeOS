@@ -37,6 +37,7 @@ export default defineConfig({
     "punycode",
     // Email
     "nodemailer",
+    "imapflow",
     // Browser automation
     "playwright-core",
     "chromium-bidi",

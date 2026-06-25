@@ -181,6 +181,45 @@ export async function startGateway(port = 3001): Promise<{
     return { question, answer };
   });
 
+  // -------------------------------------------------------------------------
+  // Webhook receiver — POST /webhook/:source
+  // Any external tool (Stripe, HubSpot, GitHub Actions, Shopify, etc.) can
+  // POST here and the payload becomes an observation the brain will process.
+  // -------------------------------------------------------------------------
+
+  server.post("/webhook/:source", async (request, reply) => {
+    if (!db || !config) return reply.code(503).send({ error: "Not initialized" });
+    const { source } = request.params as { source: string };
+    const body = request.body as Record<string, unknown> | null;
+
+    // Flatten the payload into a human-readable string the brain can reason about
+    function flatten(obj: unknown, depth = 0): string {
+      if (depth > 3 || obj === null || obj === undefined) return String(obj ?? "");
+      if (typeof obj !== "object") return String(obj);
+      return Object.entries(obj as Record<string, unknown>)
+        .map(([k, v]) => `${k}: ${typeof v === "object" ? flatten(v, depth + 1) : v}`)
+        .join(", ");
+    }
+
+    const summary = body ? flatten(body).slice(0, 800) : "(empty payload)";
+    const date = new Date().toISOString().slice(0, 10);
+    const obsContent = `${date} [webhook:${source}] ${summary}`;
+
+    // Infer signal category from source name
+    const categoryMap: Record<string, string> = {
+      stripe: "finance", shopify: "revenue", hubspot: "sales",
+      github: "operations", slack: "operations", zapier: "operations",
+      sendgrid: "marketing", intercom: "support", zendesk: "support",
+    };
+    const signalType = categoryMap[source.toLowerCase()] ?? "operations";
+
+    const id = await db.createObservation(config.companyId, "webhook", signalType, obsContent);
+    await db.createEvent(config.companyId, "observation.created", { source: `webhook:${source}`, observationId: id });
+
+    reply.code(200);
+    return { received: true, observationId: id, source, signalType };
+  });
+
   // Force-generate a fresh brief and persist it
   server.post("/api/brief/refresh", async (_, reply) => {
     if (!db || !config) return reply.code(503).send({ error: "Not initialized" });

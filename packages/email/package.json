@@ -14,7 +14,8 @@
   },
   "dependencies": {
     "@employeeos/shared": "workspace:*",
-    "nodemailer": "^6.9.16"
+    "nodemailer": "^6.9.16",
+    "imapflow": "^1.0.167"
   },
   "devDependencies": {
     "@types/node": "^22.20.0",

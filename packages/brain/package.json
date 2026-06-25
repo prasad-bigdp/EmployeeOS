@@ -15,7 +15,8 @@
     "@employeeos/learner": "workspace:*",
     "@employeeos/executor": "workspace:*",
     "@employeeos/planner": "workspace:*",
-    "@employeeos/reporter": "workspace:*"
+    "@employeeos/reporter": "workspace:*",
+    "@employeeos/email": "workspace:*"
   },
   "devDependencies": {
     "tsup": "^8.3.5",
