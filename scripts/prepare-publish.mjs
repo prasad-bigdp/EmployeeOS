@@ -50,6 +50,7 @@ const PUBLISH_DEPS = {
   "@fastify/websocket": "^11.0.2",
   "grammy": "^1.36.0",
   "nodemailer": "^6.9.16",
+  "imapflow": "^1.0.167",
   "playwright-core": "^1.50.0",
   "@modelcontextprotocol/sdk": "^1.12.0",
   "zod": "^3.24.1",
