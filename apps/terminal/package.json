@@ -54,6 +54,8 @@
     "@employeeos/gateway": "workspace:*",
     "@employeeos/mcp": "workspace:^",
     "@employeeos/telegram": "workspace:*",
+    "@employeeos/discord": "workspace:*",
+    "@employeeos/whatsapp": "workspace:*",
     "@employeeos/reporter": "workspace:*",
     "@employeeos/shared": "workspace:*",
     "@employeeos/skills": "workspace:*",
@@ -65,7 +67,8 @@
     "ora": "^8.1.0",
     "papaparse": "^5.5.4",
     "pdf-parse": "^1.1.1",
-    "pino": "^9.3.2"
+    "pino": "^9.3.2",
+    "qrcode-terminal": "^0.12.0"
   },
   "devDependencies": {
     "@types/node": "^22.20.0",

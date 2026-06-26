@@ -139,4 +139,25 @@ export const COMPOSIO_ACTIONS = {
     comment_on_issue: "GITHUB_ADDS_A_COMMENT_ON_AN_ISSUE",
     create_pr: "GITHUB_CREATE_A_PULL_REQUEST",
   },
+  googlecalendar: {
+    create_event: "GOOGLECALENDAR_CREATE_EVENT",
+    list_events: "GOOGLECALENDAR_LIST_EVENTS",
+    update_event: "GOOGLECALENDAR_UPDATE_EVENT",
+    delete_event: "GOOGLECALENDAR_DELETE_EVENT",
+  },
+  googledrive: {
+    create_file: "GOOGLEDRIVE_CREATE_FILE",
+    upload_file: "GOOGLEDRIVE_UPLOAD_FILE",
+    list_files: "GOOGLEDRIVE_LIST_FILES",
+  },
+  linear: {
+    create_issue: "LINEAR_CREATE_ISSUE",
+    update_issue: "LINEAR_UPDATE_ISSUE",
+    list_issues: "LINEAR_LIST_ISSUES",
+  },
+  jira: {
+    create_issue: "JIRA_CREATE_ISSUE",
+    update_issue: "JIRA_UPDATE_ISSUE",
+    add_comment: "JIRA_ADD_COMMENT",
+  },
 } as const;

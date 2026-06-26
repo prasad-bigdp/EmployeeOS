@@ -1,5 +1,6 @@
 import type { DatabaseService } from "@employeeos/database";
 import type { AIProvider } from "@employeeos/ai";
+import type { PlanStep, ToolName } from "@employeeos/shared";
 
 export interface Opportunity {
   title: string;
@@ -59,6 +60,11 @@ Format as JSON array:
   }
 }
 
+const VALID_TOOLS: ToolName[] = [
+  "github", "slack", "gmail", "notion", "hubspot", "stripe", "composio", "browser",
+  "googlecalendar", "googledrive", "linear", "jira",
+];
+
 export async function composePlan(
   db: DatabaseService,
   ai: AIProvider,
@@ -71,30 +77,60 @@ export async function composePlan(
 Opportunity: ${opportunity.title}
 Rationale: ${opportunity.rationale}
 
-Create a 3-5 step action plan to execute this opportunity.
-Format as JSON array:
-[{"step":1,"description":"...","tool":"optional_tool_name"}]`;
+Create a 3–5 step action plan. Each step must use one of these tools:
+github (create_issue, comment_on_issue, create_pr, label_issue, close_issue),
+slack (SLACK_SEND_MESSAGE),
+gmail (GMAIL_SEND_EMAIL),
+notion (NOTION_CREATE_PAGE),
+hubspot (HUBSPOT_CREATE_DEAL),
+stripe (no operations — use browser for research instead),
+browser (research, extract_metrics),
+composio (any SaaS action).
+
+Return ONLY a JSON array, no extra text:
+[
+  {
+    "tool": "github",
+    "operation": "create_issue",
+    "input": {"title": "...", "body": "..."},
+    "expectedOutcome": "Issue created for tracking the task"
+  }
+]`;
 
   const result = await ai.generate(prompt, {
-    system: "You create precise, executable business plans.",
-    maxTokens: 512
+    system: "You create precise, executable business plans. Return only valid JSON.",
+    maxTokens: 700,
   });
 
-  const match = result.match(/\[[\s\S]*\]/);
-  const actions = match ? JSON.parse(match[0]) : [];
+  const match = result.match(/\[[\s\S]*?\]/);
+  const rawSteps: Array<{
+    tool?: string;
+    operation?: string;
+    input?: Record<string, unknown>;
+    expectedOutcome?: string;
+  }> = match ? (JSON.parse(match[0]) as typeof rawSteps) : [];
+
+  const steps: PlanStep[] = rawSteps.map(s => ({
+    id: crypto.randomUUID(),
+    tool: (VALID_TOOLS.includes(s.tool as ToolName) ? s.tool : "browser") as ToolName,
+    operation: s.operation ?? "research",
+    input: s.input ?? {},
+    expectedOutcome: s.expectedOutcome,
+    status: "pending" as const,
+  }));
 
   const planId = await db.createPlan(
     companyId,
     employeeRole,
     opportunity.title,
-    actions,
+    steps,
     "recommend"
   );
 
   await db.createEvent(companyId, "plan.created", {
     planId,
     title: opportunity.title,
-    employeeRole
+    employeeRole,
   });
 
   return planId;

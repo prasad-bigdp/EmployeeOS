@@ -112,7 +112,7 @@ export async function startGateway(port = 3001): Promise<{
 
   server.get("/api/plans", async (_, reply) => {
     if (!db || !config) return reply.code(503).send({ error: "Not initialized" });
-    return db.getPendingPlans(config.companyId);
+    return db.getAllPlans(config.companyId);
   });
 
   server.get("/api/health-score", async (_, reply) => {
@@ -148,8 +148,10 @@ export async function startGateway(port = 3001): Promise<{
         payload: e.payload,
         createdAt: e.occurredAt,
       })),
-      // cursor for the next page: occurredAt of the last item returned
-      nextCursor: events.length === limit ? events[events.length - 1]!.occurredAt : null,
+      // Composite cursor "occurredAt::id" — safe across events sharing the same millisecond.
+      nextCursor: events.length === limit
+        ? `${events[events.length - 1]!.occurredAt}::${events[events.length - 1]!.id}`
+        : null,
     };
   });
 
@@ -201,6 +203,7 @@ export async function startGateway(port = 3001): Promise<{
     const payload = obsSchema.parse(request.body);
     const ai = await createProvider(config.aiProvider, {
       apiKey: config.aiApiKey,
+      authToken: config.aiAuthToken,
       model: config.aiModel,
       baseURL: config.aiBaseURL,
     });
@@ -216,12 +219,81 @@ export async function startGateway(port = 3001): Promise<{
     const { question } = askSchema.parse(request.body);
     const ai = await createProvider(config.aiProvider, {
       apiKey: config.aiApiKey,
+      authToken: config.aiAuthToken,
       model: config.aiModel,
       baseURL: config.aiBaseURL,
     });
     const answer = await answerQuestion(db, ai, config.companyId, question);
     return { question, answer };
   });
+
+  // ── Usage stats ──────────────────────────────────────────────────────────
+
+  server.get("/api/usage", async (request, reply) => {
+    if (!db || !config) return reply.code(503).send({ error: "Not initialized" });
+    const q = request.query as { days?: string };
+    const days = Math.min(90, Math.max(1, parseInt(q.days ?? "30", 10) || 30));
+    const rows = await db.getUsageStats(config.companyId, days);
+
+    // Aggregate by employee role
+    const byRole: Record<string, { inputTokens: number; outputTokens: number; calls: number }> = {};
+    let totalIn = 0, totalOut = 0;
+    for (const row of rows) {
+      const r = row.employeeRole;
+      if (!byRole[r]) byRole[r] = { inputTokens: 0, outputTokens: 0, calls: 0 };
+      byRole[r]!.inputTokens += row.inputTokens;
+      byRole[r]!.outputTokens += row.outputTokens;
+      byRole[r]!.calls += 1;
+      totalIn += row.inputTokens;
+      totalOut += row.outputTokens;
+    }
+
+    // Rough cost estimate using Claude Sonnet pricing ($3/M input, $15/M output)
+    const costUsd = (totalIn * 3 + totalOut * 15) / 1_000_000;
+    return {
+      days,
+      totalInputTokens: totalIn,
+      totalOutputTokens: totalOut,
+      estimatedCostUsd: Math.round(costUsd * 10000) / 10000,
+      byRole: Object.entries(byRole).map(([role, stats]) => ({
+        role,
+        ...stats,
+        estimatedCostUsd: Math.round((stats.inputTokens * 3 + stats.outputTokens * 15) / 1_000_000 * 10000) / 10000,
+      })),
+    };
+  });
+
+  // ── Cron / loop interval ─────────────────────────────────────────────────
+
+  server.get("/api/cron", async (_, reply) => {
+    if (!db || !config) return reply.code(503).send({ error: "Not initialized" });
+    const stored = await db.getMeta("brainLoopIntervalMinutes").catch(() => null);
+    const minutes = stored ? parseInt(stored, 10) : (config.brainLoopIntervalMinutes ?? 60);
+    return { intervalMinutes: minutes };
+  });
+
+  server.post("/api/cron", async (request, reply) => {
+    if (!db || !config) return reply.code(503).send({ error: "Not initialized" });
+    const { intervalMinutes } = request.body as { intervalMinutes?: number };
+    if (!intervalMinutes || intervalMinutes < 5 || intervalMinutes > 1440) {
+      return reply.code(400).send({ error: "intervalMinutes must be 5–1440" });
+    }
+    await db.setMeta("brainLoopIntervalMinutes", String(intervalMinutes));
+    return { intervalMinutes, note: "Restart brain loop for change to take effect" };
+  });
+
+  // ── Chat channel status ──────────────────────────────────────────────────
+
+  server.get("/api/discord/status", async () => ({
+    connected: Boolean(config?.discordBotToken && config?.discordChannelId),
+    channelId: config?.discordChannelId ?? null,
+    guildId: config?.discordGuildId ?? null,
+  }));
+
+  server.get("/api/whatsapp/status", async () => ({
+    connected: Boolean(config?.whatsappEnabled),
+    phoneNumber: config?.whatsappPhoneNumber ?? null,
+  }));
 
   // -------------------------------------------------------------------------
   // Webhook receiver — POST /webhook/:source
@@ -284,6 +356,7 @@ export async function startGateway(port = 3001): Promise<{
     if (!db || !config) return reply.code(503).send({ error: "Not initialized" });
     const ai = await createProvider(config.aiProvider, {
       apiKey: config.aiApiKey,
+      authToken: config.aiAuthToken,
       model: config.aiModel,
       baseURL: config.aiBaseURL,
     });

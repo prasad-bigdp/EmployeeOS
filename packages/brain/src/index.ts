@@ -1,5 +1,6 @@
 import type { DatabaseService } from "@employeeos/database";
 import type { AIProvider } from "@employeeos/ai";
+import { createTrackedProvider } from "@employeeos/ai";
 import { detectAnomalies, synthesizeObservations } from "@employeeos/observer";
 import { promotePatterns } from "@employeeos/learner";
 import { executeApprovedPlans } from "@employeeos/executor";
@@ -263,7 +264,18 @@ ${messages.map((m, i) => `[${i + 1}] From: ${m.from}\nSubject: ${m.subject}\n${m
   if (employees.length > 0) {
     log(`Employees: running ${employees.length} agents in parallel...`);
     const settled = await Promise.allSettled(
-      employees.map(emp => runEmployeeTick(emp, db, ai, companyId, onLog, extraContext))
+      employees.map(emp => {
+        const usageBatch: Array<{ inputTokens: number; outputTokens: number; model?: string }> = [];
+        const trackedAI = createTrackedProvider(ai, (u) => usageBatch.push(u), emp.role);
+        return runEmployeeTick(emp, db, trackedAI, companyId, onLog, extraContext).then(async result => {
+          if (usageBatch.length > 0) {
+            const totalIn = usageBatch.reduce((s, u) => s + u.inputTokens, 0);
+            const totalOut = usageBatch.reduce((s, u) => s + u.outputTokens, 0);
+            await db.recordUsage(companyId, emp.role, totalIn, totalOut, usageBatch[0]?.model).catch(() => {});
+          }
+          return result;
+        });
+      })
     );
     const results = settled
       .filter((r): r is PromiseFulfilledResult<EmployeeTickResult> => r.status === "fulfilled")
@@ -340,6 +352,7 @@ export interface BrainLoopOptions {
   extraContext?: string;
   imapConfig?: ImapConfig;
   toolConfig?: ToolConfig;
+  intervalMinutes?: number;
 }
 
 export function startBrainLoop(
@@ -361,13 +374,15 @@ export function startBrainLoop(
     notifyFn = onLogOrOptions.onNotify;
   }
 
-  const HOUR_MS = 60 * 60 * 1000;
-  const DAY_MS = 24 * HOUR_MS;
+  const opts = typeof onLogOrOptions === "object" ? onLogOrOptions : {};
+  const intervalMins = opts.intervalMinutes ?? 60;
+  const HOUR_MS = intervalMins * 60 * 1000;
+  const DAY_MS = 24 * 60 * 60 * 1000;
   const WEEK_MS = 7 * DAY_MS;
 
-  const extraCtx = typeof onLogOrOptions === "object" ? onLogOrOptions.extraContext : undefined;
-  const imapCfg = typeof onLogOrOptions === "object" ? onLogOrOptions.imapConfig : undefined;
-  const toolCfg = typeof onLogOrOptions === "object" ? onLogOrOptions.toolConfig : undefined;
+  const extraCtx = opts.extraContext;
+  const imapCfg = opts.imapConfig;
+  const toolCfg = opts.toolConfig;
 
   const hourlyTimer = setInterval(
     () => hourlyTick(db, ai, companyId, onLog, notifyFn, extraCtx, imapCfg, toolCfg).catch(console.error),

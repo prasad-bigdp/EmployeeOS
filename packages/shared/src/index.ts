@@ -112,7 +112,7 @@ export interface Plan {
   employeeRole: string;
   title: string;
   actions: PlanAction[];
-  status: "pending" | "approved" | "executing" | "done" | "rejected" | "failed";
+  status: "pending" | "approved" | "executing" | "done" | "rejected" | "failed" | "blocked";
   autonomyRequired: AutonomyLevel;
 }
 
@@ -129,9 +129,9 @@ export interface HealthScore {
   scoredAt: string;
 }
 
-export type AIProviderName = "anthropic" | "openai" | "openrouter" | "ollama";
+export type AIProviderName = "anthropic" | "openai" | "openrouter" | "ollama" | "claude-code" | "codex";
 
-export type ToolName = "github" | "slack" | "gmail" | "notion" | "hubspot" | "stripe" | "composio" | "browser";
+export type ToolName = "github" | "slack" | "gmail" | "notion" | "hubspot" | "stripe" | "composio" | "browser" | "googlecalendar" | "googledrive" | "linear" | "jira";
 export type StepStatus = "pending" | "running" | "done" | "failed" | "skipped";
 
 export interface PlanStep {
@@ -161,6 +161,7 @@ export interface OnboardingConfig {
   learningEnabled: boolean;
   aiProvider: AIProviderName;
   aiApiKey: string;
+  aiAuthToken?: string;
   aiModel?: string;
   aiBaseURL?: string;
 }
@@ -171,6 +172,7 @@ export interface AppConfig {
   dbPath: string;
   aiProvider: AIProviderName;
   aiApiKey: string;
+  aiAuthToken?: string;
   aiModel?: string;
   aiBaseURL?: string;
   autonomyLevel: AutonomyLevel;
@@ -190,6 +192,12 @@ export interface AppConfig {
   githubOwner?: string;
   githubRepo?: string;
   composioApiKey?: string;
+  brainLoopIntervalMinutes?: number;
+  discordBotToken?: string;
+  discordChannelId?: string;
+  discordGuildId?: string;
+  whatsappEnabled?: boolean;
+  whatsappPhoneNumber?: string;
 }
 
 export const GOAL_LABELS: Record<GoalKind, string> = {

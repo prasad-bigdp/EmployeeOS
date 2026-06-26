@@ -7,9 +7,10 @@ import Ask from "./Ask";
 import Plans from "./Plans";
 import BrainTerminal from "./Terminal";
 import Settings from "./Settings";
+import Usage from "./Usage";
 import "./App.css";
 
-type Page = "dashboard" | "brief" | "ask" | "plans" | "terminal" | "settings";
+type Page = "dashboard" | "brief" | "ask" | "plans" | "terminal" | "settings" | "usage";
 
 export default function App() {
   const [page, setPage] = useState<Page>("dashboard");
@@ -54,6 +55,7 @@ export default function App() {
     { id: "plans", label: "AI Plans", icon: "⟳" },
     { id: "terminal", label: "Live Terminal", icon: "⌗" },
     { id: "settings", label: "Integrations", icon: "⚙" },
+    { id: "usage", label: "Usage & Cron", icon: "◈" },
   ];
 
   return (
@@ -109,6 +111,7 @@ export default function App() {
           {page === "plans" && <Plans />}
           {page === "terminal" && <BrainTerminal onConnectionChange={handleConnect} />}
           {page === "settings" && <Settings />}
+          {page === "usage" && <Usage />}
         </div>
       </main>
     </div>

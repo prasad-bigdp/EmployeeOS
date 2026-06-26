@@ -193,6 +193,15 @@ export async function browseAndExtractMetrics(
   const summary = summaryLines.join("\n").trim();
   onLog?.(metrics.length + " metrics extracted and saved");
 
+  // One summary event per extraction so the company timeline is fully reconstructable
+  if (metrics.length > 0) {
+    await db.createEvent(companyId, "observation.created", {
+      source: "browser_import",
+      url: result.url,
+      metricsCount: metrics.length,
+    });
+  }
+
   return { metrics, summary };
 }
 

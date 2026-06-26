@@ -1,20 +1,28 @@
 {
-  "name": "@employeeos/planner",
+  "name": "@employeeos/discord",
   "private": true,
   "version": "1.0.0",
   "type": "module",
   "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js"
+  },
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --out-dir dist",
+    "dev": "tsx src/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@employeeos/database": "workspace:*",
     "@employeeos/ai": "workspace:*",
-    "@employeeos/shared": "workspace:*"
+    "@employeeos/database": "workspace:*",
+    "@employeeos/reporter": "workspace:*",
+    "@employeeos/shared": "workspace:*",
+    "discord.js": "^14.18.0"
   },
   "devDependencies": {
+    "@types/node": "^22.20.0",
     "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
     "typescript": "^5.8.3"
   }
 }

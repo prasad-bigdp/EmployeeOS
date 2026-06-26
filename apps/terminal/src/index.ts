@@ -1,6 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import http from "node:http";
+import { randomBytes, createHash } from "node:crypto";
+import { exec } from "node:child_process";
 import chalk from "chalk";
 import { Command } from "commander";
 import inquirer from "inquirer";
@@ -180,6 +183,180 @@ async function indexDocuments(
   return indexed;
 }
 
+// -- Claude Code OAuth connection -----------------------------------------
+
+async function connectClaudeCode(): Promise<string> {
+
+  // 1. Try reusing existing Claude Code CLI credentials
+  const credFile = path.join(os.homedir(), ".claude", ".credentials.json");
+  if (fs.existsSync(credFile)) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(credFile, "utf-8")) as Record<string, unknown>;
+      // Credentials format: { claudeAiOAuthToken: { accessToken, refreshToken, expiresAt } }
+      const oauthObj = raw["claudeAiOAuthToken"] as Record<string, unknown> | undefined;
+      const token =
+        (oauthObj?.["accessToken"] as string | undefined) ??
+        (raw["accessToken"] as string | undefined) ??
+        (raw["token"] as string | undefined);
+
+      if (token && token.trim().length > 20) {
+        const { useExisting } = await inquirer.prompt([{
+          type: "confirm",
+          name: "useExisting",
+          message: "Found existing Claude Code session. Use it?",
+          default: true,
+        }]);
+        if (useExisting) {
+          ok("Using existing Claude Code session from ~/.claude/.credentials.json");
+          return token.trim();
+        }
+      }
+    } catch {
+      // Unreadable — fall through
+    }
+  }
+
+  // 2. Guide through claude setup-token (generates a long-lived OAuth token)
+  console.log("");
+  info("To connect your Claude Code subscription:");
+  console.log(chalk.yellow("  1. Open a new terminal"));
+  console.log(chalk.yellow("  2. Run: claude setup-token"));
+  console.log(chalk.yellow("  3. Log in when your browser opens"));
+  console.log(chalk.yellow("  4. Copy the token that appears and paste it here"));
+  console.log("");
+
+  const { token } = await inquirer.prompt([{
+    type: "password",
+    name: "token",
+    message: "Paste your Claude Code OAuth token:",
+    validate: (v: string) => v.trim().length > 20 || "Token looks too short",
+  }]);
+
+  ok("Claude Code token saved");
+  return (token as string).trim();
+}
+
+// -- OpenAI Codex OAuth (PKCE) --------------------------------------------
+
+async function connectCodexOAuth(): Promise<string> {
+
+  // 1. Try reusing existing Codex CLI credentials
+  const credFile = path.join(os.homedir(), ".codex", "auth.json");
+  if (fs.existsSync(credFile)) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(credFile, "utf-8")) as Record<string, unknown>;
+      const token = (raw["access"] as string | undefined) ?? (raw["access_token"] as string | undefined);
+      if (token && token.trim().length > 20) {
+        const { useExisting } = await inquirer.prompt([{
+          type: "confirm",
+          name: "useExisting",
+          message: "Found existing Codex session. Use it?",
+          default: true,
+        }]);
+        if (useExisting) {
+          ok("Using existing Codex session from ~/.codex/auth.json");
+          return token.trim();
+        }
+      }
+    } catch {
+      // Unreadable — fall through
+    }
+  }
+
+  // 2. Full PKCE browser flow
+  const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
+  const REDIRECT_PORT = 1455;
+  const REDIRECT_URI = `http://127.0.0.1:${REDIRECT_PORT}/auth/callback`;
+  const AUTH_URL = "https://auth.openai.com/oauth/authorize";
+  const TOKEN_URL = "https://auth.openai.com/oauth/token";
+
+  // Generate PKCE verifier + challenge
+  const verifier = randomBytes(32).toString("base64url");
+  const challenge = createHash("sha256").update(verifier).digest("base64url");
+  const state = randomBytes(16).toString("hex");
+
+  const authorizeURL =
+    AUTH_URL +
+    "?response_type=code" +
+    "&client_id=" + encodeURIComponent(CLIENT_ID) +
+    "&redirect_uri=" + encodeURIComponent(REDIRECT_URI) +
+    "&scope=" + encodeURIComponent("openid email profile") +
+    "&code_challenge_method=S256" +
+    "&code_challenge=" + challenge +
+    "&state=" + state;
+
+  // Start local callback server
+  const code = await new Promise<string>((resolve, reject) => {
+    const server = http.createServer((req, res) => {
+      const url = new URL(req.url ?? "/", `http://127.0.0.1:${REDIRECT_PORT}`);
+      const code = url.searchParams.get("code");
+      const returnedState = url.searchParams.get("state");
+
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end("<html><body><h2>You can close this tab and return to the terminal.</h2></body></html>");
+      server.close();
+
+      if (!code) return reject(new Error("No code in callback"));
+      if (returnedState !== state) return reject(new Error("State mismatch - possible CSRF"));
+      resolve(code);
+    });
+
+    server.listen(REDIRECT_PORT, "127.0.0.1", () => {
+      info("Opening browser for Codex login...");
+      // Open browser cross-platform
+      const opener =
+        process.platform === "win32" ? `start "" "${authorizeURL}"`
+        : process.platform === "darwin" ? `open "${authorizeURL}"`
+        : `xdg-open "${authorizeURL}"`;
+      exec(opener, err => { if (err) info("Could not open browser. Visit: " + authorizeURL); });
+    });
+
+    server.on("error", reject);
+    // 5-minute timeout
+    setTimeout(() => { server.close(); reject(new Error("Login timed out after 5 minutes")); }, 300_000);
+  });
+
+  // Exchange code for tokens
+  const tokenSpinner = ora("  Exchanging code for tokens...").start();
+  const resp = await fetch(TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      client_id: CLIENT_ID,
+      code,
+      redirect_uri: REDIRECT_URI,
+      code_verifier: verifier,
+    }).toString(),
+  });
+
+  if (!resp.ok) {
+    tokenSpinner.fail("  Token exchange failed");
+    throw new Error("Codex token exchange failed: " + resp.status + " " + await resp.text());
+  }
+
+  const tokens = await resp.json() as { access_token?: string; refresh_token?: string; expires_in?: number };
+  const accessToken = tokens.access_token;
+  if (!accessToken) throw new Error("No access_token in Codex response");
+
+  // Cache to ~/.codex/auth.json so the Codex CLI itself can reuse it
+  try {
+    const codexDir = path.join(os.homedir(), ".codex");
+    if (!fs.existsSync(codexDir)) fs.mkdirSync(codexDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(codexDir, "auth.json"),
+      JSON.stringify({ access: accessToken, refresh: tokens.refresh_token ?? null, expires: tokens.expires_in ?? null }),
+      { encoding: "utf-8", mode: 0o600 }
+    );
+  } catch {
+    // Non-fatal: EmployeeOS still has the token in its own config
+  }
+
+  tokenSpinner.succeed("  Codex connected");
+  ok("OpenAI Codex session saved");
+  return accessToken;
+}
+
 // -- Onboarding -----------------------------------------------------------
 
 async function runOnboarding() {
@@ -284,14 +461,20 @@ async function runOnboarding() {
 
   let aiProvider: AIProviderName = "anthropic";
   let aiApiKey = "";
+  let aiAuthToken: string | undefined;
   let aiModel: string | undefined;
   let aiBaseURL: string | undefined;
 
   const envAnthropic = process.env["ANTHROPIC_API_KEY"];
   const envOpenAI = process.env["OPENAI_API_KEY"];
   const envOpenRouter = process.env["OPENROUTER_API_KEY"];
+  const envClaudeCode = process.env["ANTHROPIC_AUTH_TOKEN"] ?? process.env["CLAUDE_CODE_OAUTH_TOKEN"];
 
-  if (envAnthropic) {
+  if (envClaudeCode) {
+    aiProvider = "claude-code";
+    aiAuthToken = envClaudeCode;
+    ok("Detected Claude Code OAuth token - using Claude Code subscription");
+  } else if (envAnthropic) {
     aiProvider = "anthropic";
     aiApiKey = envAnthropic;
     ok("Detected ANTHROPIC_API_KEY - using Anthropic (Claude)");
@@ -309,29 +492,37 @@ async function runOnboarding() {
       name: "chosenProvider",
       message: "Which AI provider do you want to use?",
       choices: [
-        { name: "Anthropic (Claude) - Best quality, Recommended", value: "anthropic" },
-        { name: "OpenAI (GPT-4o / o3-mini)", value: "openai" },
-        { name: "OpenRouter - Access 400+ models with one key", value: "openrouter" },
-        { name: "Ollama - Run locally, free, fully private", value: "ollama" }
-      ]
+        { name: "Anthropic (Claude) - API key", value: "anthropic" },
+        { name: "Claude Code (Max/Pro/Teams) - Browser login, no API key needed", value: "claude-code" },
+        { name: "OpenAI Codex (ChatGPT Plus/Pro) - Browser login, no API key needed", value: "codex" },
+        { name: "OpenAI (GPT-4o / o3-mini) - API key", value: "openai" },
+        { name: "OpenRouter - 400+ models with one key", value: "openrouter" },
+        { name: "Ollama - Run locally, free, fully private", value: "ollama" },
+      ],
     }]);
 
     aiProvider = chosenProvider as AIProviderName;
 
-    if (aiProvider === "ollama") {
+    if (aiProvider === "claude-code") {
+      aiAuthToken = await connectClaudeCode();
+      aiModel = "claude-sonnet-4-6";
+    } else if (aiProvider === "codex") {
+      aiAuthToken = await connectCodexOAuth();
+      aiModel = "gpt-4o";
+    } else if (aiProvider === "ollama") {
       const ollamaAnswers = await inquirer.prompt([
         {
           type: "input",
           name: "ollamaURL",
           message: "Ollama base URL:",
-          default: "http://localhost:11434"
+          default: "http://localhost:11434",
         },
         {
           type: "input",
           name: "ollamaModel",
           message: "Model name (must be pulled in Ollama):",
-          default: "llama3.2"
-        }
+          default: "llama3.2",
+        },
       ]);
       aiBaseURL = ollamaAnswers.ollamaURL as string;
       aiModel = ollamaAnswers.ollamaModel as string;
@@ -346,7 +537,7 @@ async function runOnboarding() {
         type: "password",
         name: "apiKey",
         message: "Enter your " + providerLabel + " API key:",
-        validate: (v: string) => v.trim().length > 10 || "API key looks too short"
+        validate: (v: string) => v.trim().length > 10 || "API key looks too short",
       }]);
       aiApiKey = keyAnswers.apiKey as string;
 
@@ -355,7 +546,7 @@ async function runOnboarding() {
           type: "input",
           name: "model",
           message: "OpenRouter model (e.g. openai/gpt-4o-mini, anthropic/claude-3-haiku):",
-          default: "openai/gpt-4o-mini"
+          default: "openai/gpt-4o-mini",
         }]);
         aiModel = modelAnswer.model as string;
       }
@@ -364,7 +555,7 @@ async function runOnboarding() {
 
   const aiSpinner = ora("  Validating AI connection...").start();
   try {
-    const testAi = await createProvider(aiProvider, { apiKey: aiApiKey, model: aiModel, baseURL: aiBaseURL });
+    const testAi = await createProvider(aiProvider, { apiKey: aiApiKey, authToken: aiAuthToken, model: aiModel, baseURL: aiBaseURL });
     await testAi.generate("Reply with the single word: ok", { maxTokens: 5 });
     aiSpinner.succeed("  AI connection validated");
   } catch (err) {
@@ -521,7 +712,7 @@ async function runOnboarding() {
   knowledgeSpinner.succeed("  Knowledge base ready");
 
   const insightsSpinner = ora("  Generating first AI intelligence report...").start();
-  const ai = await createProvider(aiProvider, { apiKey: aiApiKey, model: aiModel, baseURL: aiBaseURL });
+  const ai = await createProvider(aiProvider, { apiKey: aiApiKey, authToken: aiAuthToken, model: aiModel, baseURL: aiBaseURL });
   let firstReport: { body: string; score: number };
 
   try {
@@ -545,10 +736,11 @@ async function runOnboarding() {
     dbPath: DB_FILE,
     aiProvider,
     aiApiKey,
+    aiAuthToken,
     aiModel,
     aiBaseURL,
     autonomyLevel,
-    initialized: true
+    initialized: true,
   };
   saveConfig(config);
   db.close();
@@ -625,7 +817,7 @@ async function showDashboard(config: AppConfig) {
 
 async function showBrief(config: AppConfig) {
   const db = await openDB(config);
-  const ai = await createProvider(config.aiProvider, { apiKey: config.aiApiKey, model: config.aiModel, baseURL: config.aiBaseURL });
+  const ai = await createProvider(config.aiProvider, { apiKey: config.aiApiKey, authToken: config.aiAuthToken, model: config.aiModel, baseURL: config.aiBaseURL });
   const spinner = ora("  Generating morning brief...").start();
 
   try {
@@ -648,7 +840,7 @@ async function showBrief(config: AppConfig) {
 
 async function thinkAbout(question: string, config: AppConfig) {
   const db = await openDB(config);
-  const ai = await createProvider(config.aiProvider, { apiKey: config.aiApiKey, model: config.aiModel, baseURL: config.aiBaseURL });
+  const ai = await createProvider(config.aiProvider, { apiKey: config.aiApiKey, authToken: config.aiAuthToken, model: config.aiModel, baseURL: config.aiBaseURL });
   const spinner = ora("  Thinking...").start();
 
   try {
@@ -705,17 +897,33 @@ async function showStatus(config: AppConfig) {
 
 async function showPlans(config: AppConfig) {
   const db = await openDB(config);
-  const plans = await db.getPendingPlans(config.companyId);
+  const plans = await db.getAllPlans(config.companyId);
 
   banner();
   section("AI-Generated Plans");
 
   if (plans.length === 0) {
-    info("No pending plans. Run `employeeos start` to let the brain generate plans.");
-  } else {
-    for (const p of plans) {
-      console.log(chalk.bold.cyan("  " + p.title));
-      console.log(chalk.gray("  Role: " + p.employeeRole + " | Autonomy required: " + p.autonomyRequired));
+    info("No plans yet. Run `employeeos start` to let the brain generate plans.");
+    db.close();
+    return;
+  }
+
+  const statusGroups: Array<{ label: string; color: (s: string) => string; filter: string[] }> = [
+    { label: "Pending Approval", color: chalk.yellow, filter: ["pending"] },
+    { label: "Approved",         color: chalk.green,  filter: ["approved"] },
+    { label: "Executing",        color: chalk.cyan,   filter: ["executing"] },
+    { label: "Done",             color: chalk.gray,   filter: ["done"] },
+    { label: "Failed",           color: chalk.red,    filter: ["failed"] },
+    { label: "Rejected",         color: chalk.red,    filter: ["rejected"] },
+  ];
+
+  for (const { label, color, filter } of statusGroups) {
+    const group = plans.filter(p => filter.includes(p.status));
+    if (group.length === 0) continue;
+    console.log(color("  " + label + " (" + group.length + "):"));
+    for (const p of group) {
+      console.log(chalk.bold("    " + p.title));
+      console.log(chalk.gray("    Role: " + p.employeeRole + " | Autonomy: " + p.autonomyRequired));
       console.log("");
     }
   }
@@ -745,6 +953,207 @@ async function showEmployees(config: AppConfig) {
 
 // -- Start Brain Loop -----------------------------------------------------
 
+// -- Discord setup --------------------------------------------------------
+
+async function runDiscordSetup(config: AppConfig) {
+  banner();
+  section("Connect Discord");
+
+  console.log("  You need a Discord bot token and a channel ID.");
+  console.log("");
+  console.log(chalk.gray("  Steps:"));
+  console.log(chalk.gray("  1. Go to https://discord.com/developers/applications"));
+  console.log(chalk.gray("  2. Create a new Application → Bot → copy the token"));
+  console.log(chalk.gray("  3. Enable: Server Members, Message Content intents"));
+  console.log(chalk.gray("  4. Invite the bot with: applications.commands + bot scopes"));
+  console.log(chalk.gray("  5. Right-click your channel → Copy Channel ID"));
+  console.log("");
+
+  const { botToken, channelId, guildId } = await inquirer.prompt([
+    { type: "input", name: "botToken", message: "Bot token:", default: config.discordBotToken },
+    { type: "input", name: "channelId", message: "Channel ID to post in:", default: config.discordChannelId },
+    { type: "input", name: "guildId", message: "Guild (server) ID (leave blank for global commands):", default: config.discordGuildId ?? "" },
+  ]);
+
+  if (!botToken || !channelId) { warn("Skipped."); return; }
+
+  const spinner = ora("  Registering slash commands...").start();
+  try {
+    const { Client, GatewayIntentBits } = await import("discord.js");
+    const c = new Client({ intents: [GatewayIntentBits.Guilds] });
+    await c.login(botToken);
+    const clientId = c.application?.id ?? c.user?.id ?? "";
+    await c.destroy();
+
+    const { registerSlashCommands } = await import("@employeeos/discord");
+    await registerSlashCommands(botToken, clientId, guildId || undefined);
+    spinner.succeed("  Slash commands registered");
+  } catch (e: unknown) {
+    spinner.fail("  Failed: " + (e as Error).message);
+    return;
+  }
+
+  saveConfig({ ...config, discordBotToken: botToken, discordChannelId: channelId, discordGuildId: guildId || undefined });
+  ok("  Discord connected. Restart `employeeos start` to activate the bot.");
+  console.log("");
+  info("Commands: /brief  /status  /plans  /ask <question>");
+}
+
+// -- WhatsApp setup -------------------------------------------------------
+
+async function runWhatsAppSetup(config: AppConfig) {
+  banner();
+  section("Connect WhatsApp");
+
+  console.log("  WhatsApp uses unofficial web automation (whatsapp-web.js).");
+  console.log(chalk.yellow("  Warning: Use a dedicated number — not your personal WhatsApp."));
+  console.log("");
+
+  const { targetNumber } = await inquirer.prompt([
+    { type: "input", name: "targetNumber", message: "Your WhatsApp number (include country code, e.g. 919876543210):", default: config.whatsappPhoneNumber },
+  ]);
+
+  if (!targetNumber) { warn("Skipped."); return; }
+
+  console.log("");
+  info("Opening WhatsApp — scan the QR code in a few seconds...");
+  console.log("");
+
+  try {
+    const qrTerminal = await import("qrcode-terminal");
+    const { setupWhatsApp } = await import("@employeeos/whatsapp");
+
+    const result = await setupWhatsApp(targetNumber, (qr) => {
+      qrTerminal.default.generate(qr, { small: true });
+      info("Scan the QR code above with WhatsApp on your phone.");
+    });
+
+    if (result.success) {
+      saveConfig({ ...config, whatsappEnabled: true, whatsappPhoneNumber: targetNumber });
+      ok(`  Connected! WhatsApp account: ${result.phone}`);
+      info("Commands: !brief  !status  !plans  !ask <question>");
+    } else {
+      warn("  Connection failed or timed out. Try again.");
+    }
+  } catch (e: unknown) {
+    warn("  WhatsApp setup failed: " + (e as Error).message);
+    info("  Make sure Chrome/Chromium is installed and puppeteer can launch it.");
+  }
+}
+
+// -- Cron config ----------------------------------------------------------
+
+async function runCronConfig(config: AppConfig, minutesArg?: string) {
+  if (minutesArg) {
+    const mins = parseInt(minutesArg, 10);
+    if (isNaN(mins) || mins < 5 || mins > 1440) {
+      warn("Interval must be between 5 and 1440 minutes.");
+      return;
+    }
+    saveConfig({ ...config, brainLoopIntervalMinutes: mins });
+    const label = mins < 60 ? `${mins} minutes` : `${mins / 60} hour${mins > 60 ? "s" : ""}`;
+    ok(`Brain loop interval set to every ${label}.`);
+    info("Restart `employeeos start` for the change to take effect.");
+    return;
+  }
+
+  // Interactive picker
+  banner();
+  section("Brain Loop Schedule");
+
+  const current = config.brainLoopIntervalMinutes ?? 60;
+  info(`Current interval: ${current} minutes`);
+  console.log("");
+
+  const { choice } = await inquirer.prompt([{
+    type: "list",
+    name: "choice",
+    message: "How often should the brain tick?",
+    choices: [
+      { name: "Every 15 minutes  (aggressive monitoring)", value: 15 },
+      { name: "Every 30 minutes", value: 30 },
+      { name: "Every 60 minutes  (default)", value: 60 },
+      { name: "Every 2 hours", value: 120 },
+      { name: "Every 4 hours     (low usage)", value: 240 },
+      { name: "Every 8 hours     (minimal)", value: 480 },
+    ],
+    default: current,
+  }]);
+
+  saveConfig({ ...config, brainLoopIntervalMinutes: choice });
+  const label = choice < 60 ? `${choice} minutes` : `${choice / 60} hour${choice > 60 ? "s" : ""}`;
+  ok(`Interval set to every ${label}. Restart \`employeeos start\` to apply.`);
+}
+
+// -- Usage dashboard ------------------------------------------------------
+
+const ROLE_EMOJI: Record<string, string> = {
+  "ceo-assistant": "Brain",
+  "marketing-manager": "Mktg",
+  "sales-manager": "Sales",
+  "support-manager": "Supp",
+  "finance-manager": "Fin",
+  "hr-manager": "HR",
+};
+
+async function showUsage(config: AppConfig) {
+  const db = await openDB(config);
+  const rows = await db.getUsageStats(config.companyId, 30);
+  db.close();
+
+  banner();
+  section("Token Usage (last 30 days)");
+
+  if (rows.length === 0) {
+    info("No usage data yet. Start the brain loop to generate activity.");
+    return;
+  }
+
+  const byRole: Record<string, { inputTokens: number; outputTokens: number; calls: number }> = {};
+  let totalIn = 0, totalOut = 0;
+
+  for (const row of rows) {
+    const r = row.employeeRole;
+    if (!byRole[r]) byRole[r] = { inputTokens: 0, outputTokens: 0, calls: 0 };
+    byRole[r]!.inputTokens += row.inputTokens;
+    byRole[r]!.outputTokens += row.outputTokens;
+    byRole[r]!.calls += 1;
+    totalIn += row.inputTokens;
+    totalOut += row.outputTokens;
+  }
+
+  const costUsd = (totalIn * 3 + totalOut * 15) / 1_000_000;
+
+  console.log(chalk.bold("  Total:"));
+  console.log(chalk.gray(`    Input tokens:  ${fmtNum(totalIn)}`));
+  console.log(chalk.gray(`    Output tokens: ${fmtNum(totalOut)}`));
+  console.log(chalk.cyan(`    Est. cost:     $${costUsd.toFixed(4)} USD`));
+  console.log(chalk.gray("    (Claude Sonnet pricing: $3/M input · $15/M output, ~4 chars/token)"));
+  console.log("");
+  console.log(chalk.bold("  By employee:"));
+
+  const sorted = Object.entries(byRole).sort((a, b) =>
+    (b[1].inputTokens + b[1].outputTokens) - (a[1].inputTokens + a[1].outputTokens)
+  );
+
+  for (const [role, stats] of sorted) {
+    const cost = (stats.inputTokens * 3 + stats.outputTokens * 15) / 1_000_000;
+    const label = ROLE_EMOJI[role] ?? role;
+    console.log(
+      chalk.cyan(`  ${label.padEnd(8)}`),
+      chalk.gray(`in: ${fmtNum(stats.inputTokens).padStart(7)}  out: ${fmtNum(stats.outputTokens).padStart(7)}  calls: ${stats.calls}`),
+      chalk.bold(`  $${cost.toFixed(4)}`)
+    );
+  }
+  console.log("");
+}
+
+function fmtNum(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
 async function openBrowser(url: string) {
   const { exec } = await import("node:child_process");
   const cmd =
@@ -756,11 +1165,14 @@ async function openBrowser(url: string) {
 
 async function startLoop(config: AppConfig) {
   const db = await openDB(config);
-  const ai = await createProvider(config.aiProvider, { apiKey: config.aiApiKey, model: config.aiModel, baseURL: config.aiBaseURL });
+  const ai = await createProvider(config.aiProvider, { apiKey: config.aiApiKey, authToken: config.aiAuthToken, model: config.aiModel, baseURL: config.aiBaseURL });
+
+  const intervalMins = config.brainLoopIntervalMinutes ?? 60;
+  const intervalLabel = intervalMins < 60 ? `${intervalMins}m` : `${intervalMins / 60}h`;
 
   banner();
   section("Starting Brain Loop");
-  info("Hourly: observe + plan");
+  info(`Tick interval: every ${intervalLabel} (observe + plan)`);
   info("Daily:  morning brief");
   info("Weekly: executive review");
   console.log("");
@@ -791,6 +1203,31 @@ async function startLoop(config: AppConfig) {
       ok("  Telegram bot connected");
     } catch {
       warn("  Telegram bot failed to start");
+    }
+  }
+
+  // Wire Discord notifier if configured
+  let discordNotify: ((msg: string) => void) | undefined;
+  if (config.discordBotToken && config.discordChannelId) {
+    try {
+      const { createDiscordNotifier, startDiscordBot } = await import("@employeeos/discord");
+      discordNotify = createDiscordNotifier(config.discordBotToken, config.discordChannelId);
+      await startDiscordBot(config.discordBotToken, db, ai, config.companyId, config.discordChannelId);
+      ok("  Discord bot connected");
+    } catch {
+      warn("  Discord bot failed to start");
+    }
+  }
+
+  // Wire WhatsApp notifier if configured
+  let whatsappNotify: ((msg: string) => void) | undefined;
+  if (config.whatsappEnabled && config.whatsappPhoneNumber) {
+    try {
+      const { createWhatsAppNotifier } = await import("@employeeos/whatsapp");
+      whatsappNotify = createWhatsAppNotifier(config.whatsappPhoneNumber);
+      ok("  WhatsApp notifications active → " + config.whatsappPhoneNumber);
+    } catch {
+      warn("  WhatsApp notifier failed to start");
     }
   }
 
@@ -838,7 +1275,10 @@ async function startLoop(config: AppConfig) {
       broadcast?.(msg);
       telegramNotify?.(msg);
       emailNotify?.(msg);
+      discordNotify?.(msg);
+      whatsappNotify?.(msg);
     },
+    intervalMinutes: config.brainLoopIntervalMinutes ?? 60,
     extraContext: skillContext || undefined,
     imapConfig: (config.imapHost && config.imapUser && config.imapPass)
       ? { host: config.imapHost, port: config.imapPort ?? 993, user: config.imapUser, pass: config.imapPass, tls: config.imapTls !== false }
@@ -980,6 +1420,42 @@ program
     await runTelegramSetup(config);
   });
 
+program
+  .command("discord")
+  .description("Connect Discord bot for notifications and slash commands")
+  .action(async () => {
+    const config = loadConfig();
+    if (!config) { info("Run `employeeos init` first."); process.exit(1); }
+    await runDiscordSetup(config);
+  });
+
+program
+  .command("whatsapp")
+  .description("Connect WhatsApp for notifications and !commands")
+  .action(async () => {
+    const config = loadConfig();
+    if (!config) { info("Run `employeeos init` first."); process.exit(1); }
+    await runWhatsAppSetup(config);
+  });
+
+program
+  .command("cron [minutes]")
+  .description("View or set the brain loop tick interval (minutes)")
+  .action(async (minutes?: string) => {
+    const config = loadConfig();
+    if (!config) { info("Run `employeeos init` first."); process.exit(1); }
+    await runCronConfig(config, minutes);
+  });
+
+program
+  .command("usage")
+  .description("Show token usage and estimated cost by AI employee")
+  .action(async () => {
+    const config = loadConfig();
+    if (!config) { info("Run `employeeos init` first."); process.exit(1); }
+    await showUsage(config);
+  });
+
 // -- Import (CSV / JSON) --------------------------------------------------
 
 const SAMPLE_CSV_PATH = path.join(os.homedir(), ".employeeos", "sample-metrics.csv");
@@ -1103,7 +1579,7 @@ async function runImport(config: AppConfig, filePath?: string) {
       process.exit(1);
     }
 
-    const ai = await createProvider(config.aiProvider, { apiKey: config.aiApiKey, model: config.aiModel, baseURL: config.aiBaseURL });
+    const ai = await createProvider(config.aiProvider, { apiKey: config.aiApiKey, authToken: config.aiAuthToken, model: config.aiModel, baseURL: config.aiBaseURL });
     const extractSpinner = ora("  Extracting business signals with AI...").start();
 
     const prompt = `Extract business signals from this document. Write one line per signal:
@@ -1239,6 +1715,13 @@ ${pdfText.slice(0, 6000)}`;
     await db.createObservation(config.companyId, "csv_import", r.category ?? "general", obsContent);
     categories[r.category ?? "general"] = (categories[r.category ?? "general"] ?? 0) + 1;
   }
+
+  // Single summary event so the timeline stays reconstructable
+  await db.createEvent(config.companyId, "observation.created", {
+    source: "csv_import",
+    count: valid.length,
+    categories: Object.keys(categories),
+  });
 
   db.close();
   spinner.succeed("  Imported " + valid.length + " metrics");
@@ -1704,8 +2187,9 @@ async function runBrowse(url: string, task: string, config: AppConfig) {
   const db = await openDB(config);
   const ai = await createProvider(config.aiProvider, {
     apiKey: config.aiApiKey,
+    authToken: config.aiAuthToken,
     model: config.aiModel,
-    baseURL: config.aiBaseURL
+    baseURL: config.aiBaseURL,
   });
 
   banner();

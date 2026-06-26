@@ -17,9 +17,13 @@ export default function Plans() {
   if (loading) return <div className="loading">Loading plans...</div>;
   if (error) return <div className="error-box">{error}</div>;
 
-  const pending = plans.filter((p) => p.status === "pending");
-  const approved = plans.filter((p) => p.status === "approved");
-  const executed = plans.filter((p) => p.status === "done");
+  const pending   = plans.filter((p) => p.status === "pending");
+  const approved  = plans.filter((p) => p.status === "approved");
+  const executing = plans.filter((p) => p.status === "executing");
+  const done      = plans.filter((p) => p.status === "done");
+  const blocked   = plans.filter((p) => p.status === "blocked");
+  const failed    = plans.filter((p) => p.status === "failed");
+  const rejected  = plans.filter((p) => p.status === "rejected");
 
   return (
     <div>
@@ -44,10 +48,34 @@ export default function Plans() {
               {approved.map((p) => <PlanCard key={p.id} plan={p} />)}
             </div>
           )}
-          {executed.length > 0 && (
+          {executing.length > 0 && (
             <div className="section">
-              <div className="section-title">Executed ({executed.length})</div>
-              {executed.map((p) => <PlanCard key={p.id} plan={p} />)}
+              <div className="section-title">Executing ({executing.length})</div>
+              {executing.map((p) => <PlanCard key={p.id} plan={p} />)}
+            </div>
+          )}
+          {done.length > 0 && (
+            <div className="section">
+              <div className="section-title">Done ({done.length})</div>
+              {done.map((p) => <PlanCard key={p.id} plan={p} />)}
+            </div>
+          )}
+          {blocked.length > 0 && (
+            <div className="section">
+              <div className="section-title">Blocked — needs higher autonomy ({blocked.length})</div>
+              {blocked.map((p) => <PlanCard key={p.id} plan={p} />)}
+            </div>
+          )}
+          {failed.length > 0 && (
+            <div className="section">
+              <div className="section-title">Failed ({failed.length})</div>
+              {failed.map((p) => <PlanCard key={p.id} plan={p} />)}
+            </div>
+          )}
+          {rejected.length > 0 && (
+            <div className="section">
+              <div className="section-title">Rejected ({rejected.length})</div>
+              {rejected.map((p) => <PlanCard key={p.id} plan={p} />)}
             </div>
           )}
         </>
@@ -67,7 +95,9 @@ function PlanCard({ plan }: { plan: PlanRow }) {
   const statusBadge: Record<string, string> = {
     pending: "badge-yellow",
     approved: "badge-green",
+    executing: "badge-blue",
     done: "badge-gray",
+    blocked: "badge-yellow",
     rejected: "badge-red",
     failed: "badge-red",
   };

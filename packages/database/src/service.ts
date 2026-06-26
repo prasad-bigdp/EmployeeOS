@@ -2,7 +2,7 @@ import fs from "node:fs";
 import initSqlJs from "sql.js";
 import type { Database, SqlJsStatic, BindParams } from "sql.js";
 import { drizzle, type SqliteRemoteDatabase } from "drizzle-orm/sqlite-proxy";
-import { and, eq, desc, isNull, lt } from "drizzle-orm";
+import { and, or, eq, desc, isNull, lt, gt } from "drizzle-orm";
 import * as schema from "./schema.js";
 import { runMigrations } from "./migrations.js";
 
@@ -331,7 +331,7 @@ export class DatabaseService {
     companyId: string,
     employeeRole: string,
     title: string,
-    actions: Array<{ step: number; description: string; tool?: string }>,
+    actions: unknown[],
     autonomyRequired = "recommend"
   ) {
     const id = uid();
@@ -353,6 +353,22 @@ export class DatabaseService {
     return this.db
       .select()
       .from(schema.plans)
+      .where(and(eq(schema.plans.companyId, companyId), eq(schema.plans.status, "pending")))
+      .orderBy(desc(schema.plans.createdAt));
+  }
+
+  async getApprovedPlans(companyId: string) {
+    return this.db
+      .select()
+      .from(schema.plans)
+      .where(and(eq(schema.plans.companyId, companyId), eq(schema.plans.status, "approved")))
+      .orderBy(desc(schema.plans.createdAt));
+  }
+
+  async getAllPlans(companyId: string) {
+    return this.db
+      .select()
+      .from(schema.plans)
       .where(eq(schema.plans.companyId, companyId))
       .orderBy(desc(schema.plans.createdAt));
   }
@@ -363,6 +379,36 @@ export class DatabaseService {
       .set({ status })
       .where(eq(schema.plans.id, planId));
     this.save();
+  }
+
+  // ── Usage Stats ───────────────────────────────────────────────────────────
+
+  async recordUsage(
+    companyId: string,
+    employeeRole: string,
+    inputTokens: number,
+    outputTokens: number,
+    model?: string
+  ) {
+    await this.db.insert(schema.usageStats).values({
+      id: uid(),
+      companyId,
+      employeeRole,
+      model: model ?? null,
+      inputTokens,
+      outputTokens,
+      recordedAt: new Date().toISOString(),
+    });
+    this.save();
+  }
+
+  async getUsageStats(companyId: string, days = 30) {
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    return this.db
+      .select()
+      .from(schema.usageStats)
+      .where(and(eq(schema.usageStats.companyId, companyId), gt(schema.usageStats.recordedAt, since)))
+      .orderBy(desc(schema.usageStats.recordedAt));
   }
 
   // ── Health Scores ──────────────────────────────────────────────────────────
@@ -577,18 +623,38 @@ export class DatabaseService {
     limit = 50,
     before?: string
   ) {
-    const conditions = before
-      ? and(eq(schema.events.companyId, companyId), lt(schema.events.occurredAt, before))
-      : eq(schema.events.companyId, companyId);
+    // Composite cursor: "occurredAt::id" — prevents skipping events that share the same timestamp.
+    // Secondary sort on id (descending) gives a stable page boundary within the same millisecond.
+    let conditions;
+    if (before) {
+      const sepIdx = before.lastIndexOf("::");
+      if (sepIdx !== -1) {
+        const beforeTime = before.slice(0, sepIdx);
+        const beforeId = before.slice(sepIdx + 2);
+        conditions = and(
+          eq(schema.events.companyId, companyId),
+          or(
+            lt(schema.events.occurredAt, beforeTime),
+            and(eq(schema.events.occurredAt, beforeTime), lt(schema.events.id, beforeId))
+          )
+        );
+      } else {
+        // Legacy plain-timestamp cursor (backwards compat)
+        conditions = and(eq(schema.events.companyId, companyId), lt(schema.events.occurredAt, before));
+      }
+    } else {
+      conditions = eq(schema.events.companyId, companyId);
+    }
+
     const rows = await this.db
       .select()
       .from(schema.events)
       .where(conditions)
-      .orderBy(desc(schema.events.occurredAt))
+      .orderBy(desc(schema.events.occurredAt), desc(schema.events.id))
       .limit(limit);
     return rows.map(e => ({
       ...e,
-      payload: JSON.parse(e.payload) as Record<string, unknown>
+      payload: JSON.parse(e.payload) as Record<string, unknown>,
     }));
   }
 

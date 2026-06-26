@@ -35,6 +35,16 @@ export default defineConfig({
     "node-fetch",
     "whatwg-url",
     "punycode",
+    // Discord — discord.js uses native ESM with CJS interop that breaks inlining
+    "discord.js",
+    "@discordjs/rest",
+    "@discordjs/builders",
+    // WhatsApp — puppeteer/chromium paths must stay external
+    "whatsapp-web.js",
+    "puppeteer",
+    "puppeteer-core",
+    // QR code
+    "qrcode-terminal",
     // Email
     "nodemailer",
     "imapflow",

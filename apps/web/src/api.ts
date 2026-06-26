@@ -49,6 +49,16 @@ export async function getObservations() {
   return apiFetch<ObsRow[]>("/observations");
 }
 
+export async function getIntegrations() {
+  return apiFetch<IntegrationsRow>("/integrations");
+}
+
+export interface IntegrationApp { app: string; status: string; connectedAt: string | null; connectionId: string | null; }
+export interface IntegrationsRow {
+  github: { connected: boolean; status: string; owner: string | null; repo: string | null };
+  composio: { keyConfigured: boolean; apps: IntegrationApp[] };
+}
+
 export interface CompanyRow { id: string; name: string; industry: string; ceoName: string; }
 export interface BrandRow { id: string; name: string; }
 export interface GoalRow { id: string; title: string; progress: number; status: string; }

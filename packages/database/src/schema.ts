@@ -162,6 +162,16 @@ export const toolConnections = sqliteTable("tool_connections", {
   connectedAt: text("connected_at"),
 });
 
+export const usageStats = sqliteTable("usage_stats", {
+  id: text("id").primaryKey(),
+  companyId: text("company_id").notNull(),
+  employeeRole: text("employee_role").notNull().default("unknown"),
+  model: text("model"),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  recordedAt: text("recorded_at").notNull(),
+});
+
 export const reports = sqliteTable("reports", {
   id: text("id").primaryKey(),
   companyId: text("company_id").notNull(),

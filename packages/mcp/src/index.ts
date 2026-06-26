@@ -27,8 +27,9 @@ async function openResources() {
   const db = await DatabaseService.open(config.dbPath);
   const ai = await createProvider(config.aiProvider, {
     apiKey: config.aiApiKey,
+    authToken: config.aiAuthToken,
     model: config.aiModel,
-    baseURL: config.aiBaseURL
+    baseURL: config.aiBaseURL,
   });
   return { db, ai, config };
 }

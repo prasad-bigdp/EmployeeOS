@@ -25,8 +25,10 @@ Everything is stored locally in a SQLite database at `~/.employeeos/brain.db`. N
 Plans follow a full lifecycle you can trace:
 
 ```
-observation → plan (pending) → approved → executed → learning
-                                       ↘ failed    → logged
+observation → plan (pending) → approved → executing → done     → learning
+                                                    ↘ failed    → logged (a step errored)
+                                                    ↘ blocked   → logged (dangerous op blocked by autonomy level)
+             → rejected
 ```
 
 Every step is written to an events table. The web dashboard, Telegram, and MCP server all read from the same event history — nothing is synthesized from current state.
@@ -117,15 +119,28 @@ At the end it generates your first intelligence report and saves everything.
 
 ## Choosing an AI provider
 
-**Anthropic (Claude)** — best quality, what we build and test with. Get a key at console.anthropic.com. About $2–5/month at normal usage.
+| Provider | Auth | Notes |
+|---|---|---|
+| **Anthropic Claude** | API key | Best quality — `console.anthropic.com` |
+| **Claude Code** (Max/Pro/Teams/Enterprise) | Browser OAuth | No API key — uses your subscription |
+| **OpenAI Codex** (ChatGPT Plus/Pro) | Browser OAuth | No API key — uses your subscription |
+| **OpenAI** | API key | GPT-4o / o3-mini — `platform.openai.com` |
+| **OpenRouter** | API key | 400+ models with one key — `openrouter.ai` |
+| **Ollama** | None | Free, local, fully private |
 
-**OpenAI (GPT-4o)** — works great, widely available. Get a key at platform.openai.com.
+**Claude Code and Codex** connect via browser OAuth — no API key copy-pasting. When you select either during `employeeos init`, a browser tab opens and you log in with your existing subscription account. The session token is stored in `~/.employeeos/config.json`.
 
-**OpenRouter** — one key, 400+ models. Great if you want to try different models. Get a key at openrouter.ai. Recommended starting model: `openai/gpt-4o-mini`.
+If you already have `claude` or `codex` CLIs installed and authenticated, EmployeeOS will offer to reuse the existing session from `~/.claude/.credentials.json` or `~/.codex/auth.json`.
 
-**Ollama** — completely free and local. No API key. Runs on your machine. Install from ollama.com, pull a model (`ollama pull llama3.2`), then select Ollama during setup. Quality is lower than cloud models but costs nothing.
+Environment variable shortcuts (skip the provider prompt entirely):
 
-If you have `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `OPENROUTER_API_KEY` set in your environment, setup will detect it automatically.
+```bash
+ANTHROPIC_API_KEY=sk-ant-...          # Anthropic direct
+ANTHROPIC_AUTH_TOKEN=...               # Claude Code OAuth token
+CLAUDE_CODE_OAUTH_TOKEN=...            # output of: claude setup-token
+OPENAI_API_KEY=sk-...                  # OpenAI direct
+OPENROUTER_API_KEY=sk-or-...           # OpenRouter
+```
 
 ---
 
@@ -254,7 +269,7 @@ The brain creates plans when employees identify opportunities. Each plan has:
 
 - **Employee role** — which AI employee created it
 - **Autonomy level** — `observe` / `recommend` / `execute` / `autonomous`
-- **Status** — `pending` → `approved` → `done` or `failed`
+- **Status** — `pending` → `approved` → `done`, `failed`, or `blocked`
 
 Plans that require approval wait in the queue. You can approve or reject from:
 - The web dashboard
@@ -413,7 +428,7 @@ Available tools from inside Claude: `think`, `get_brief`, `get_status`, `import_
 - **Dashboard** — health score (0–100), active goals with progress bars, AI employees
 - **Morning Brief** — today's cached report, force-refresh button
 - **Ask Brain** — chat interface with full company context
-- **AI Plans** — all plans with status badges (`pending`, `approved`, `done`, `failed`, `rejected`)
+- **AI Plans** — all plans grouped by status: `pending`, `approved`, `executing`, `done`, `blocked`, `failed`, `rejected`
 - **Event History** — full audit trail read directly from the events table: every plan created, approved, rejected, executed, or failed; every learning extracted; every report generated; every webhook or email signal ingested
 - **Live Terminal** — real-time stream of what the brain is doing this tick
 

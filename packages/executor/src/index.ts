@@ -64,6 +64,27 @@ async function runComposioStep(step: PlanStep, ctx: ExecutionContext): Promise<S
   }
 }
 
+async function runBrowserStep(step: PlanStep, ctx: ExecutionContext): Promise<StepResult> {
+  const url = step.input["url"] as string | undefined;
+  if (!url) {
+    return { success: false, error: "Browser step requires input.url" };
+  }
+  const task =
+    (step.input["task"] as string | undefined) ??
+    (step.input["query"] as string | undefined) ??
+    step.expectedOutcome ??
+    step.operation;
+  try {
+    const { browseAndExtractMetrics } = await import("@employeeos/browser");
+    const { metrics, summary } = await browseAndExtractMetrics(
+      url, task, ctx.ai, ctx.db, ctx.companyId
+    );
+    return { success: true, result: { url, metricsCount: metrics.length, summary } };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
 async function runAIFallbackStep(step: PlanStep, ctx: ExecutionContext): Promise<StepResult> {
   const prompt = `You are executing a plan step as a business action engine.
 Tool: ${step.tool}
@@ -89,8 +110,14 @@ async function dispatchStep(step: PlanStep, ctx: ExecutionContext): Promise<Step
     case "notion":
     case "hubspot":
     case "stripe":
+    case "googlecalendar":
+    case "googledrive":
+    case "linear":
+    case "jira":
     case "composio":
       return runComposioStep(step, ctx);
+    case "browser":
+      return runBrowserStep(step, ctx);
     default:
       return runAIFallbackStep(step, ctx);
   }
@@ -108,8 +135,7 @@ export async function executeApprovedPlans(
   const log = onLog ?? (() => {});
   const ctx: ExecutionContext = { db, ai, companyId, toolConfig: toolConfig ?? {} };
 
-  const allPlans = await db.getPendingPlans(companyId);
-  const approved = allPlans.filter(p => p.status === "approved");
+  const approved = await db.getApprovedPlans(companyId);
   if (approved.length === 0) return 0;
 
   const company = await db.getCompany();
@@ -121,11 +147,14 @@ export async function executeApprovedPlans(
 
     try {
       const rawActions = JSON.parse(plan.actions || "[]") as unknown[];
+      // PlanStep requires both `tool` and `operation`; legacy { step, description, tool? }
+      // only has an optional tool but never has operation — check for both.
       const isStructured =
         rawActions.length > 0 &&
         typeof rawActions[0] === "object" &&
         rawActions[0] !== null &&
-        "tool" in (rawActions[0] as object);
+        "tool" in (rawActions[0] as object) &&
+        "operation" in (rawActions[0] as object);
 
       if (!isStructured) {
         // Legacy string-array plans — AI text generation only
@@ -171,7 +200,8 @@ Write a brief execution report (3-5 sentences):
 
       // Structured step execution
       const steps = rawActions as PlanStep[];
-      let allSucceeded = true;
+      let anyFailed = false;
+      let anyBlocked = false;
       const stepSummaries: string[] = [];
 
       for (const step of steps) {
@@ -186,14 +216,15 @@ Write a brief execution report (3-5 sentences):
           );
           await db.updateExecutionStep(stepId, {
             status: "skipped",
-            error: "Skipped — autonomy level is 'observe'. Approve with execute permission to allow this action.",
+            error: "Blocked — autonomy level is 'observe'. Raise to 'execute' to allow this action.",
             completedAt: new Date().toISOString(),
           });
-          await db.createEvent(companyId, "step.failed", {
+          // step.blocked — distinct from step.failed so observers can separate policy from errors
+          await db.createEvent(companyId, "step.blocked", {
             executionId, stepId, tool: step.tool, operation: step.operation, reason: "autonomy_blocked",
           });
-          stepSummaries.push(`[SKIPPED] ${step.tool}:${step.operation} — autonomy blocked`);
-          allSucceeded = false;
+          stepSummaries.push(`[BLOCKED] ${step.tool}:${step.operation} — requires execute autonomy`);
+          anyBlocked = true;
           continue;
         }
 
@@ -234,12 +265,15 @@ Write a brief execution report (3-5 sentences):
           });
           stepSummaries.push(`[FAILED] ${step.tool}:${step.operation} — ${stepResult.error}`);
           log(`Executor: step [${step.tool}:${step.operation}] failed — ${stepResult.error}`);
-          allSucceeded = false;
+          anyFailed = true;
         }
       }
 
       const combinedOutcome = stepSummaries.join("\n");
-      const finalStatus = allSucceeded ? "done" : "failed";
+      // "blocked" = policy stopped steps but nothing errored; "failed" = a step threw
+      const finalStatus = anyFailed ? "failed" : anyBlocked ? "blocked" : "done";
+      const eventType =
+        anyFailed ? "plan.failed" : anyBlocked ? "plan.blocked" : "plan.executed";
 
       const learningId = await extractLearning(db, ai, companyId, {
         action: plan.title,
@@ -255,9 +289,9 @@ Write a brief execution report (3-5 sentences):
         completedAt: new Date().toISOString(),
       });
       await db.updatePlanStatus(plan.id, finalStatus);
-      await db.createEvent(companyId, allSucceeded ? "plan.executed" : "plan.failed", {
+      await db.createEvent(companyId, eventType, {
         planId: plan.id, title: plan.title, role: plan.employeeRole,
-        executionId, stepCount: steps.length, allSucceeded,
+        executionId, stepCount: steps.length, anyFailed, anyBlocked,
       });
 
       executed++;
