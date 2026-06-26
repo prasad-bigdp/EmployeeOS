@@ -64,6 +64,14 @@ const PUBLISH_DEPS = {
   "@octokit/rest": "^21.0.2",
 };
 
+// Optional deps — large or platform-specific. npm skips them if install fails.
+// Users only need these when they actively use the Discord/WhatsApp features.
+const PUBLISH_OPTIONAL_DEPS = {
+  "discord.js": "^14.18.0",
+  "whatsapp-web.js": "^1.34.7",
+  "qrcode-terminal": "^0.12.0",
+};
+
 const PKG_PATH = path.join(TERMINAL_DIR, "package.json");
 const PKG_BACKUP = path.join(TERMINAL_DIR, "package.json.bak");
 
@@ -99,11 +107,13 @@ async function main() {
 
   const publishPkg = {
     ...original,
+    bin: { employeeos: "dist/index.js" },   // explicit path — no "./" prefix avoids npm auto-correction
     dependencies: PUBLISH_DEPS,
+    optionalDependencies: PUBLISH_OPTIONAL_DEPS,
     files: ["dist/**", "README.md"],
     scripts: {
       // Only keep start — no prepublishOnly so npm doesn't rebuild and overwrite
-      // the 4.5 MB bundled dist/index.js with an unbundled version
+      // the bundled dist/index.js with an unbundled version
       start: "node dist/index.js",
     },
   };

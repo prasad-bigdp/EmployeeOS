@@ -1,6 +1,6 @@
 {
   "name": "employeeos",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "The Open Source Company Brain — hire AI employees, get morning briefs, track business health",
   "type": "module",
   "main": "dist/index.js",
